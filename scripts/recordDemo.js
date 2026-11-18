@@ -42,10 +42,10 @@ async function main() {
   console.log('Opening demo-replay.html…');
   await page.goto('file://' + htmlPath);
 
-  // The demo has 25 events at ~500-1200 ms each ≈ ~22 s total.
-  // Wait a generous 35 s to capture the full animation plus a tail pause.
-  console.log('Recording animation (35 s)…');
-  await page.waitForTimeout(35_000);
+  // The demo now has 30 events at ~500-1200 ms each ≈ ~28 s total.
+  // Wait a generous 45 s to capture the full animation plus a tail pause.
+  console.log('Recording animation (45 s)…');
+  await page.waitForTimeout(45_000);
 
   // Extra pause at end so the final frame is readable
   await page.waitForTimeout(3_000);

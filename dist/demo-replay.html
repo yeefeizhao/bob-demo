@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Clinical Trial Retention Agent — Demo</title>
+<title>Clinical Trial Retention Agent â€” Demo</title>
 <style>
   :root {
     --bg: #0d1117;
@@ -36,7 +36,7 @@
     align-items: center;
   }
 
-  /* ── Window chrome ─────────────────────────────── */
+  /* â”€â”€ Window chrome â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   .window {
     width: 900px;
     max-width: 100vw;
@@ -75,7 +75,7 @@
     scroll-behavior: smooth;
   }
 
-  /* ── Event renderers ───────────────────────────── */
+  /* â”€â”€ Event renderers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   .event { margin-bottom: 4px; opacity: 0; animation: none; }
   .event.visible { opacity: 1; }
 
@@ -121,7 +121,7 @@
     padding-left: 6px;
     font-size: 12px;
   }
-  .ev-think::before { content: "⟳ "; }
+  .ev-think::before { content: "âŸ³ "; }
 
   .ev-tool-call {
     margin: 6px 0 0;
@@ -136,7 +136,7 @@
     font-size: 11px;
     letter-spacing: 0.05em;
   }
-  .ev-tool-call .tool-tag::before { content: "▶ tool: "; font-weight: 400; color: var(--muted); }
+  .ev-tool-call .tool-tag::before { content: "â–¶ tool: "; font-weight: 400; color: var(--muted); }
   .ev-tool-call pre {
     color: #adbac7;
     font-size: 11px;
@@ -158,7 +158,7 @@
     font-size: 11px;
     letter-spacing: 0.05em;
   }
-  .ev-tool-result .tool-tag::before { content: "✓ result: "; font-weight: 400; color: var(--muted); }
+  .ev-tool-result .tool-tag::before { content: "âœ“ result: "; font-weight: 400; color: var(--muted); }
   .ev-tool-result pre {
     color: #adbac7;
     font-size: 11px;
@@ -181,7 +181,7 @@
     margin-bottom: 5px;
     display: block;
   }
-  .ev-agent-reply .agent-tag::before { content: "🤖 "; }
+  .ev-agent-reply .agent-tag::before { content: "ðŸ¤– "; }
   .ev-agent-reply .agent-text {
     color: var(--text);
     white-space: pre-wrap;
@@ -197,7 +197,7 @@
     text-align: center;
   }
 
-  /* ── Cursor blink ──────────────────────────────── */
+  /* â”€â”€ Cursor blink â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   .cursor {
     display: inline-block;
     width: 8px;
@@ -209,14 +209,14 @@
   }
   @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
 
-  /* ── Fade-in ───────────────────────────────────── */
+  /* â”€â”€ Fade-in â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   @keyframes fadeIn {
     from { opacity: 0; transform: translateY(4px); }
     to   { opacity: 1; transform: translateY(0); }
   }
   .fade-in { animation: fadeIn 0.3s ease forwards; }
 
-  /* ── Progress bar ──────────────────────────────── */
+  /* â”€â”€ Progress bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   .progress-bar {
     height: 3px;
     background: var(--border);
@@ -229,7 +229,7 @@
     transition: width 0.4s ease;
   }
 
-  /* ── Branding ──────────────────────────────────── */
+  /* â”€â”€ Branding â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   .branding {
     color: var(--muted);
     font-size: 11px;
@@ -246,7 +246,7 @@
     <span class="dot dot-red"></span>
     <span class="dot dot-yellow"></span>
     <span class="dot dot-green"></span>
-    <span class="title-label">clinical-trial-retention-agent — demo</span>
+    <span class="title-label">clinical-trial-retention-agent â€” demo</span>
   </div>
   <div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
   <div class="terminal" id="terminal">
@@ -254,7 +254,7 @@
   </div>
 </div>
 
-<div class="branding">NYU Stern × IBM watsonx AI Labs &nbsp;|&nbsp; Orange Team &nbsp;|&nbsp; Clinical Trial Retention Agent Prototype</div>
+<div class="branding">NYU Stern Ã— IBM watsonx AI Labs &nbsp;|&nbsp; Orange Team &nbsp;|&nbsp; Clinical Trial Retention Agent Prototype</div>
 
 <script>
 // ---------------------------------------------------------------------------
@@ -264,29 +264,33 @@ const EVENTS = [
   {"kind":"header","text":"Clinical Trial Retention Agent","delay":0},
   {"kind":"context","text":"Participant: Maria Santos  |  Trial: LUMINA-2: Adjuvant Immunotherapy in Stage III NSCLC","delay":600},
   {"kind":"context","text":"Next visit: V-1042-04 on 2024-11-15T09:00:00","delay":400},
-  {"kind":"header","text":"— Turn 1: Maria reports a scheduling conflict —","delay":1200},
-  {"kind":"participant","label":"Maria Santos","text":"Hi, I have a conflict on November 15th and can\u2019t make my appointment. Can I move it to November 18th?","delay":600},
-  {"kind":"agent-think","text":"Agent thinking\u2026","delay":800},
+  {"kind":"header","text":"â€” Maria reports a scheduling conflict â€”","delay":1200},
+  {"kind":"participant","label":"Maria Santos","text":"Hi, I have a conflict on November 15th and can\u0027t make my appointment. Can I move it to November 18th?","delay":600},
+  {"kind":"agent-think","text":"Agent thinkingâ€¦","delay":800},
   {"kind":"tool-call","label":"checkVisitWindow","data":{"participantId":"P-1042","visitId":"V-1042-04","proposedDate":"2024-11-18"},"delay":500},
-  {"kind":"tool-result","label":"checkVisitWindow","data":{"withinWindow":true,"earliestDate":"2024-11-12","latestDate":"2024-11-19","targetDate":"2024-11-15","reschedulesRemaining":2,"message":"2024-11-18 is within the allowed window (2024-11-12 \u2013 2024-11-19). 2 reschedule(s) remaining for Maria."},"delay":400},
+  {"kind":"tool-result","label":"checkVisitWindow","data":{"withinWindow":true,"earliestDate":"2024-11-12","latestDate":"2024-11-19","targetDate":"2024-11-15","reschedulesRemaining":2,"message":"2024-11-18 is within the allowed window (2024-11-12 â€“ 2024-11-19). 2 reschedule(s) remaining for Maria."},"delay":400},
   {"kind":"tool-call","label":"rescheduleVisit","data":{"participantId":"P-1042","visitId":"V-1042-04","newDateTime":"2024-11-18T09:00:00","reason":"Work conflict on original date"},"delay":500},
-  {"kind":"tool-result","label":"rescheduleVisit","data":{"success":true,"newVisitDateTime":"2024-11-18T09:00:00","confirmationCode":"RSC-97C674B8","message":"Visit V-1042-04 successfully rescheduled to 2024-11-18T09:00:00. Confirmation: RSC-97C674B8. Reason logged: \"Work conflict on original date\"."},"delay":400},
-  {"kind":"tool-call","label":"arrangeTravel","data":{"participantId":"P-1042","visitId":"V-1042-04","visitDateTime":"2024-11-18T09:00:00","requiresHotel":false},"delay":500},
-  {"kind":"tool-result","label":"arrangeTravel","data":{"travelBooked":true,"transportMode":"transit","estimatedCostUsd":5,"hotelBooked":false,"confirmationCodes":["TRV-155E1599"],"message":"Travel arranged for Maria Santos: transit to NYU Langone Medical Center, 550 1st Ave, New York, NY 10016 on 2024-11-18. Estimated cost: $5. Codes: TRV-155E1599."},"delay":400},
-  {"kind":"tool-call","label":"sendReminder","data":{"participantId":"P-1042","visitId":"V-1042-04","channel":"email","daysBeforeVisit":3},"delay":500},
-  {"kind":"tool-result","label":"sendReminder","data":{"sent":true,"channel":"email","sentAt":"2026-11-05T21:41:18.060Z","message":"EMAIL reminder sent to maria.santos@example.com (3 day(s) before visit V-1042-04)."},"delay":400},
-  {"kind":"agent-reply","text":"All done! Here is a summary:\n\u2022 Visit rescheduled to November 18th, 2024 at 9:00 AM.\n\u2022 Transit booked to NYU Langone Medical Center.\n\u2022 Email reminder will be sent 3 days before your visit.\n\nIf anything else comes up, just let me know. Take care, Maria!","delay":600},
-  {"kind":"header","text":"— Turn 2: Maria confirms and mentions she will drive —","delay":800},
+  {"kind":"tool-result","label":"rescheduleVisit","data":{"success":true,"newVisitDateTime":"2024-11-18T09:00:00","confirmationCode":"RSC-8DC38F49","message":"Visit V-1042-04 successfully rescheduled to 2024-11-18T09:00:00. Confirmation: RSC-8DC38F49. Reason logged: \"Work conflict on original date\"."},"delay":400},
+  {"kind":"agent-reply","text":"Your visit is now rescheduled to November 18th at 9:00 AM. Would you like me to look up travel options to the site for you?","delay":600},
+  {"kind":"header","text":"â€” Maria confirms the new date; agent fetches travel options â€”","delay":800},
   {"kind":"participant","label":"Maria Santos","text":"Yes please, November 18th at 9 AM works great. I will drive myself.","delay":600},
-  {"kind":"agent-think","text":"Agent thinking\u2026","delay":800},
-  {"kind":"agent-reply","text":"Perfect! I\u2019ve noted that you\u2019ll be driving. Once you\u2019ve completed your visit, I can submit a mileage reimbursement for you. Just let me know how many miles you drove.","delay":600},
-  {"kind":"header","text":"— Turn 3: Maria asks about reimbursement —","delay":800},
+  {"kind":"agent-think","text":"Agent thinkingâ€¦","delay":800},
+  {"kind":"tool-call","label":"getTravelOptions","data":{"participantId":"P-1042","visitId":"V-1042-04","visitDateTime":"2024-11-18T09:00:00","requiresHotel":false},"delay":500},
+  {"kind":"tool-result","label":"getTravelOptions","data":{"options":[{"transportMode":"transit","estimatedTravelCostUsd":5,"hotelCostUsd":0,"totalCostUsd":5}],"message":"Travel options for Maria Santos to NYU Langone Medical Center, 550 1st Ave, New York, NY 10016 on 2024-11-18: transit ($5). Total estimated cost: $5. Please present these options to the participant and await their confirmation before booking."},"delay":400},
+  {"kind":"agent-reply","text":"Here are your travel options for November 18th:\nâ€¢ Transit to NYU Langone Medical Center â€” estimated cost: $5.\n\nNo hotel is needed. Would you like me to go ahead and book this?","delay":600},
+  {"kind":"header","text":"â€” Maria approves the travel option â€” agent confirms booking â€”","delay":800},
+  {"kind":"participant","label":"Maria Santos","text":"Yes, please go ahead and book the transit option.","delay":600},
+  {"kind":"agent-think","text":"Agent thinkingâ€¦","delay":800},
+  {"kind":"tool-call","label":"confirmTravel","data":{"participantId":"P-1042","visitId":"V-1042-04","visitDateTime":"2024-11-18T09:00:00","transportMode":"transit","requiresHotel":false,"humanConfirmed":true},"delay":500},
+  {"kind":"tool-result","label":"confirmTravel","data":{"travelBooked":true,"transportMode":"transit","estimatedCostUsd":5,"hotelBooked":false,"confirmationCodes":["TRV-C50300CF"],"message":"Travel confirmed for Maria Santos: transit to NYU Langone Medical Center, 550 1st Ave, New York, NY 10016 on 2024-11-18. Estimated cost: $5. Codes: TRV-C50300CF."},"delay":400},
+  {"kind":"tool-call","label":"sendReminder","data":{"participantId":"P-1042","visitId":"V-1042-04","channel":"email","daysBeforeVisit":3},"delay":500},
+  {"kind":"tool-result","label":"sendReminder","data":{"sent":true,"channel":"email","sentAt":"2026-11-18T21:25:04.718Z","message":"EMAIL reminder sent to maria.santos@example.com (3 day(s) before visit V-1042-04)."},"delay":400},
+  {"kind":"agent-reply","text":"All done! Here is a summary:\nâ€¢ Visit rescheduled to November 18th, 2024 at 9:00 AM.\nâ€¢ Travel booked to NYU Langone Medical Center (transit, $5).\nâ€¢ Email reminder will be sent 3 days before your visit.\n\nIf anything else comes up, just let me know. Take care, Maria!","delay":600},
+  {"kind":"header","text":"â€” Maria asks about reimbursement â€”","delay":800},
   {"kind":"participant","label":"Maria Santos","text":"How do I get reimbursed for my drive? I will be coming about 25 miles.","delay":600},
-  {"kind":"agent-think","text":"Agent thinking\u2026","delay":800},
-  {"kind":"tool-call","label":"trackReimbursement","data":{"participantId":"P-1042","visitId":"V-1042-04","milesDriven":25,"hotelNights":0},"delay":500},
-  {"kind":"tool-result","label":"trackReimbursement","data":{"reimbursementId":"RMB-A3F7C021","status":"submitted","estimatedAmountUsd":16.75,"submittedAt":"2026-11-05T21:41:20.000Z","message":"Reimbursement RMB-A3F7C021 submitted for $16.75 (25 miles @ $0.67/mi, 0 hotel night(s) @ $150/night)."},"delay":400},
-  {"kind":"agent-reply","text":"Done! I\u2019ve submitted a reimbursement request for you:\n\u2022 Amount: $16.75 (25 miles \u00d7 $0.67/mi)\n\u2022 Reference: RMB-A3F7C021\n\u2022 Status: Submitted \u2014 you\u2019ll receive payment within 5\u20137 business days.\n\nIs there anything else I can help you with before your November 18th visit?","delay":600},
-  {"kind":"footer","text":"Session complete  |  Tools executed: 7  |  Session ID: 0e0c8cf5-ad73-4851-9802-6a69cf963768","delay":1000}
+  {"kind":"agent-think","text":"Agent thinkingâ€¦","delay":800},
+  {"kind":"agent-reply","text":"All done! Here is a summary:\nâ€¢ Visit rescheduled to November 18th, 2024 at 9:00 AM.\nâ€¢ Travel booked to NYU Langone Medical Center (transit, $5).\nâ€¢ Email reminder will be sent 3 days before your visit.\n\nIf anything else comes up, just let me know. Take care, Maria!","delay":600},
+  {"kind":"footer","text":"Session complete  |  Session ID: 9935c234-e898-4fed-b23a-8e7c10399cfa","delay":1000}
 ];
 
 // ---------------------------------------------------------------------------
@@ -311,7 +315,7 @@ function appendEl(html) {
   const el = wrapper.firstElementChild;
   el.classList.add('fade-in');
   terminal.insertBefore(el, cursor);
-  // Always pull the cursor — the last rendered item — into view
+  // Always pull the cursor â€” the last rendered item â€” into view
   cursor.scrollIntoView({ behavior: 'smooth', block: 'end' });
   return el;
 }

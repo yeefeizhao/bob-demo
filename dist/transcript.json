@@ -70,14 +70,35 @@
     "data": {
       "success": true,
       "newVisitDateTime": "2024-11-18T09:00:00",
-      "confirmationCode": "RSC-97C674B8",
-      "message": "Visit V-1042-04 successfully rescheduled to 2024-11-18T09:00:00. Confirmation: RSC-97C674B8. Reason logged: \"Work conflict on original date\"."
+      "confirmationCode": "RSC-8DC38F49",
+      "message": "Visit V-1042-04 successfully rescheduled to 2024-11-18T09:00:00. Confirmation: RSC-8DC38F49. Reason logged: \"Work conflict on original date\"."
     },
     "delay": 400
   },
   {
+    "kind": "agent-reply",
+    "text": "Your visit is now rescheduled to November 18th at 9:00 AM. Would you like me to look up travel options to the site for you?",
+    "delay": 600
+  },
+  {
+    "kind": "header",
+    "text": "— Maria confirms the new date; agent fetches travel options —",
+    "delay": 800
+  },
+  {
+    "kind": "participant",
+    "label": "Maria Santos",
+    "text": "Yes please, November 18th at 9 AM works great. I will drive myself.",
+    "delay": 600
+  },
+  {
+    "kind": "agent-think",
+    "text": "Agent thinking…",
+    "delay": 800
+  },
+  {
     "kind": "tool-call",
-    "label": "arrangeTravel",
+    "label": "getTravelOptions",
     "data": {
       "participantId": "P-1042",
       "visitId": "V-1042-04",
@@ -88,16 +109,66 @@
   },
   {
     "kind": "tool-result",
-    "label": "arrangeTravel",
+    "label": "getTravelOptions",
+    "data": {
+      "options": [
+        {
+          "transportMode": "transit",
+          "estimatedTravelCostUsd": 5,
+          "hotelCostUsd": 0,
+          "totalCostUsd": 5
+        }
+      ],
+      "message": "Travel options for Maria Santos to NYU Langone Medical Center, 550 1st Ave, New York, NY 10016 on 2024-11-18: transit ($5). Total estimated cost: $5. Please present these options to the participant and await their confirmation before booking."
+    },
+    "delay": 400
+  },
+  {
+    "kind": "agent-reply",
+    "text": "Here are your travel options for November 18th:\n• Transit to NYU Langone Medical Center — estimated cost: $5.\n\nNo hotel is needed. Would you like me to go ahead and book this?",
+    "delay": 600
+  },
+  {
+    "kind": "header",
+    "text": "— Maria approves the travel option — agent confirms booking —",
+    "delay": 800
+  },
+  {
+    "kind": "participant",
+    "label": "Maria Santos",
+    "text": "Yes, please go ahead and book the transit option.",
+    "delay": 600
+  },
+  {
+    "kind": "agent-think",
+    "text": "Agent thinking…",
+    "delay": 800
+  },
+  {
+    "kind": "tool-call",
+    "label": "confirmTravel",
+    "data": {
+      "participantId": "P-1042",
+      "visitId": "V-1042-04",
+      "visitDateTime": "2024-11-18T09:00:00",
+      "transportMode": "transit",
+      "requiresHotel": false,
+      "humanConfirmed": true
+    },
+    "delay": 500
+  },
+  {
+    "kind": "tool-result",
+    "label": "confirmTravel",
     "data": {
       "travelBooked": true,
       "transportMode": "transit",
       "estimatedCostUsd": 5,
       "hotelBooked": false,
       "confirmationCodes": [
-        "TRV-155E1599"
+        "TRV-C50300CF"
       ],
-      "message": "Travel arranged for Maria Santos: transit to NYU Langone Medical Center, 550 1st Ave, New York, NY 10016 on 2024-11-18. Estimated cost: $5. Codes: TRV-155E1599."
+      "message": "Travel confirmed for Maria Santos: transit to NYU Langone Medical Center, 550 1st Ave, New York, NY 10016 on 2024-11-18. Estimated cost: $5. Codes: TRV-C50300CF."
     },
     "delay": 400
   },
@@ -118,35 +189,14 @@
     "data": {
       "sent": true,
       "channel": "email",
-      "sentAt": "2026-11-05T21:41:18.060Z",
+      "sentAt": "2026-11-18T21:25:04.718Z",
       "message": "EMAIL reminder sent to maria.santos@example.com (3 day(s) before visit V-1042-04)."
     },
     "delay": 400
   },
   {
     "kind": "agent-reply",
-    "text": "All done! Here is a summary:\n• Visit rescheduled to November 18th, 2024 at 9:00 AM.\n• Rideshare booked to NYU Langone Medical Center.\n• Email reminder will be sent 3 days before your visit.\n\nIf anything else comes up, just let me know. Take care, Maria!",
-    "delay": 600
-  },
-  {
-    "kind": "header",
-    "text": "— Maria confirms and mentions she will drive —",
-    "delay": 800
-  },
-  {
-    "kind": "participant",
-    "label": "Maria Santos",
-    "text": "Yes please, November 18th at 9 AM works great. I will drive myself.",
-    "delay": 600
-  },
-  {
-    "kind": "agent-think",
-    "text": "Agent thinking…",
-    "delay": 800
-  },
-  {
-    "kind": "agent-reply",
-    "text": "All done! Here is a summary:\n• Visit rescheduled to November 18th, 2024 at 9:00 AM.\n• Rideshare booked to NYU Langone Medical Center.\n• Email reminder will be sent 3 days before your visit.\n\nIf anything else comes up, just let me know. Take care, Maria!",
+    "text": "All done! Here is a summary:\n• Visit rescheduled to November 18th, 2024 at 9:00 AM.\n• Travel booked to NYU Langone Medical Center (transit, $5).\n• Email reminder will be sent 3 days before your visit.\n\nIf anything else comes up, just let me know. Take care, Maria!",
     "delay": 600
   },
   {
@@ -167,12 +217,12 @@
   },
   {
     "kind": "agent-reply",
-    "text": "All done! Here is a summary:\n• Visit rescheduled to November 18th, 2024 at 9:00 AM.\n• Rideshare booked to NYU Langone Medical Center.\n• Email reminder will be sent 3 days before your visit.\n\nIf anything else comes up, just let me know. Take care, Maria!",
+    "text": "All done! Here is a summary:\n• Visit rescheduled to November 18th, 2024 at 9:00 AM.\n• Travel booked to NYU Langone Medical Center (transit, $5).\n• Email reminder will be sent 3 days before your visit.\n\nIf anything else comes up, just let me know. Take care, Maria!",
     "delay": 600
   },
   {
     "kind": "footer",
-    "text": "Session complete  |  Session ID: 0e0c8cf5-ad73-4851-9802-6a69cf963768",
+    "text": "Session complete  |  Session ID: 9935c234-e898-4fed-b23a-8e7c10399cfa",
     "delay": 1000
   }
 ]

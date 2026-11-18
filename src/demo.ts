@@ -86,7 +86,7 @@ async function main(): Promise<void> {
   }
   agentSays(turn1.response);
 
-  // --- Turn 2: agent has executed tools, present final summary ---
+  // --- Turn 2: participant confirms the new date; agent fetches travel options ---
   const turn2Message = 'Yes please, November 18th at 9 AM works great. I will drive myself.';
   participantSays(participant.firstName, turn2Message);
 
@@ -97,8 +97,8 @@ async function main(): Promise<void> {
   }
   agentSays(turn2.response);
 
-  // --- Turn 3: request reimbursement ---
-  const turn3Message = 'How do I get reimbursed for my drive? I will be coming about 25 miles.';
+  // --- Turn 3: human explicitly approves the travel options ---
+  const turn3Message = 'Yes, please go ahead and book the transit option.';
   participantSays(participant.firstName, turn3Message);
 
   const turn3 = await session.chat(turn3Message);
@@ -108,10 +108,22 @@ async function main(): Promise<void> {
   }
   agentSays(turn3.response);
 
+  // --- Turn 4: request reimbursement ---
+  const turn4Message = 'How do I get reimbursed for my drive? I will be coming about 25 miles.';
+  participantSays(participant.firstName, turn4Message);
+
+  const turn4 = await session.chat(turn4Message);
+
+  for (const exec of turn4.toolExecutions) {
+    toolLog(exec.toolName, exec.output);
+  }
+  agentSays(turn4.response);
+
   header('Demo complete');
   console.log(`${C.dim}Session ID: ${session.sessionId}${C.reset}`);
-  console.log(`${C.dim}Total turns: 3 | Tools executed: ${
-    turn1.toolExecutions.length + turn2.toolExecutions.length + turn3.toolExecutions.length
+  console.log(`${C.dim}Total turns: 4 | Tools executed: ${
+    turn1.toolExecutions.length + turn2.toolExecutions.length +
+    turn3.toolExecutions.length + turn4.toolExecutions.length
   }${C.reset}\n`);
 }
 

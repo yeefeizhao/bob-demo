@@ -47,7 +47,7 @@ export class MockLlmClient implements LlmClient {
     const lastUser = [...messages].reverse().find((m) => m.role === 'user');
     const content = lastUser?.content ?? '';
 
-    // Step 0 – participant reports a conflict
+    // Step 0 – participant reports a conflict → check visit window
     if (this.step === 0 && content.toLowerCase().includes('conflict')) {
       this.step = 1;
       return {
@@ -70,12 +70,12 @@ export class MockLlmClient implements LlmClient {
       };
     }
 
-    // Step 1 – after checkVisitWindow result → reschedule
+    // Step 1 – after checkVisitWindow → reschedule
     if (this.step === 1) {
       this.step = 2;
       return {
         content:
-          "Great — November 18th is within the allowed window and you have reschedules remaining. I'll go ahead and reschedule your visit now.",
+          "November 18th is within the allowed window and you have reschedules remaining. I'll go ahead and reschedule your visit now.",
         toolCalls: [
           {
             id: 'tc-002',
@@ -95,18 +95,29 @@ export class MockLlmClient implements LlmClient {
       };
     }
 
-    // Step 2 – after rescheduleVisit → arrange travel
+    // Step 2 – after rescheduleVisit → summarise and ask about travel
     if (this.step === 2) {
       this.step = 3;
       return {
         content:
-          "Your visit is rescheduled. Would you like me to arrange a rideshare to the site? Do you need a hotel?",
+          "Your visit is now rescheduled to November 18th at 9:00 AM. " +
+          "Would you like me to look up travel options to the site for you?",
+        toolCalls: [],
+        finishReason: 'stop',
+      };
+    }
+
+    // Step 3 – participant confirms date and mentions driving → fetch travel options
+    if (this.step === 3) {
+      this.step = 4;
+      return {
+        content: "Let me pull up the available travel options and costs for your visit.",
         toolCalls: [
           {
             id: 'tc-003',
             type: 'function',
             function: {
-              name: 'arrangeTravel',
+              name: 'getTravelOptions',
               arguments: JSON.stringify({
                 participantId: 'P-1042',
                 visitId: 'V-1042-04',
@@ -120,15 +131,42 @@ export class MockLlmClient implements LlmClient {
       };
     }
 
-    // Step 3 – after arrangeTravel → send reminder
-    if (this.step === 3) {
-      this.step = 4;
+    // Step 4 – after getTravelOptions → present options, await human approval
+    if (this.step === 4) {
+      this.step = 5;
       return {
         content:
-          "Travel is confirmed. I'll also send you a reminder 3 days before your visit.",
+          "Here are your travel options for November 18th:\n" +
+          "• Transit to NYU Langone Medical Center — estimated cost: $5.\n\n" +
+          "No hotel is needed. Would you like me to go ahead and book this?",
+        toolCalls: [],
+        finishReason: 'stop',
+      };
+    }
+
+    // Step 5 – participant approves → confirm travel booking + send reminder
+    if (this.step === 5) {
+      this.step = 6;
+      return {
+        content: "Great, booking your travel now and scheduling a reminder.",
         toolCalls: [
           {
             id: 'tc-004',
+            type: 'function',
+            function: {
+              name: 'confirmTravel',
+              arguments: JSON.stringify({
+                participantId: 'P-1042',
+                visitId: 'V-1042-04',
+                visitDateTime: '2024-11-18T09:00:00',
+                transportMode: 'transit',
+                requiresHotel: false,
+                humanConfirmed: true,
+              }),
+            },
+          },
+          {
+            id: 'tc-005',
             type: 'function',
             function: {
               name: 'sendReminder',
@@ -145,13 +183,28 @@ export class MockLlmClient implements LlmClient {
       };
     }
 
-    // Final summary
+    // Step 6 – after confirmTravel + sendReminder → full summary
+    if (this.step === 6) {
+      this.step = 7;
+      return {
+        content:
+          'All done! Here is a summary:\n' +
+          '• Visit rescheduled to November 18th, 2024 at 9:00 AM.\n' +
+          '• Travel booked to NYU Langone Medical Center (transit, $5).\n' +
+          '• Email reminder will be sent 3 days before your visit.\n\n' +
+          'If anything else comes up, just let me know. Take care, Maria!',
+        toolCalls: [],
+        finishReason: 'stop',
+      };
+    }
+
+    // Step 7 – reimbursement question
     this.step = 0;
     return {
       content:
         'All done! Here is a summary:\n' +
         '• Visit rescheduled to November 18th, 2024 at 9:00 AM.\n' +
-        '• Rideshare booked to NYU Langone Medical Center.\n' +
+        '• Travel booked to NYU Langone Medical Center (transit, $5).\n' +
         '• Email reminder will be sent 3 days before your visit.\n\n' +
         'If anything else comes up, just let me know. Take care, Maria!',
       toolCalls: [],

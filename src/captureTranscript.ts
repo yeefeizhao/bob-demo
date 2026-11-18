@@ -76,8 +76,12 @@ async function main(): Promise<void> {
       user: "Hi, I have a conflict on November 15th and can't make my appointment. Can I move it to November 18th?",
     },
     {
-      label: 'Maria confirms and mentions she will drive',
+      label: 'Maria confirms the new date; agent fetches travel options',
       user: 'Yes please, November 18th at 9 AM works great. I will drive myself.',
+    },
+    {
+      label: 'Maria approves the travel option — agent confirms booking',
+      user: 'Yes, please go ahead and book the transit option.',
     },
     {
       label: 'Maria asks about reimbursement',
