@@ -1,18 +1,21 @@
 /**
  * @file scripts/recordDemo.js
  * Uses Playwright to open the animated demo HTML page, wait for it to finish
- * playing, and save the recorded video to dist/demo-recording.webm.
+ * playing, and save the recorded video to dist/demo-recording.webm and
+ * dist/demo-recording.mp4 (requires ffmpeg on PATH).
  *
  * Usage:
  *   node scripts/recordDemo.js
  *
  * Requirements:
  *   npx playwright install chromium   (first-time only)
+ *   ffmpeg                            (for MP4 conversion)
  */
 
 const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
+const { execSync } = require('child_process');
 
 async function main() {
   const htmlPath = path.resolve(__dirname, '..', 'dist', 'demo-replay.html');
@@ -67,7 +70,24 @@ async function main() {
   fs.rmSync(videoDir, { recursive: true, force: true });
 
   const sizeMb = (fs.statSync(videoDst).size / 1024 / 1024).toFixed(1);
-  console.log(`\nVideo saved: ${videoDst}  (${sizeMb} MB)`);
+  console.log(`\nWebM saved: ${videoDst}  (${sizeMb} MB)`);
+
+  // Convert to MP4 using ffmpeg
+  const mp4Dst = path.join(outDir, 'demo-recording.mp4');
+  console.log('Converting to MP4 with ffmpeg…');
+  try {
+    execSync(
+      `ffmpeg -y -i "${videoDst}" -c:v libx264 -preset fast -crf 22 -movflags +faststart -c:a aac "${mp4Dst}"`,
+      { stdio: 'inherit' },
+    );
+    const mp4Mb = (fs.statSync(mp4Dst).size / 1024 / 1024).toFixed(1);
+    console.log(`MP4  saved: ${mp4Dst}  (${mp4Mb} MB)`);
+  } catch (ffmpegErr) {
+    console.error('ffmpeg conversion failed. Is ffmpeg installed and on PATH?');
+    console.error(ffmpegErr.message);
+    process.exit(1);
+  }
+
   console.log('Done!');
 }
 
