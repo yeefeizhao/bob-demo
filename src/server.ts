@@ -69,31 +69,37 @@ app.get('/api/participants', (_req: Request, res: Response) => {
  * Body: { participantId: string }
  */
 app.post('/api/session', (req: Request, res: Response) => {
-  const { participantId } = req.body as { participantId?: string };
+  try {
+    const { participantId } = req.body as { participantId?: string };
 
-  if (!participantId) {
-    res.status(400).json({ error: 'participantId is required' });
-    return;
+    if (!participantId) {
+      res.status(400).json({ error: 'participantId is required' });
+      return;
+    }
+
+    const participant = PARTICIPANTS[participantId];
+    if (!participant) {
+      res.status(404).json({ error: `Participant ${participantId} not found` });
+      return;
+    }
+
+    const trial = TRIALS[participant.enrolledTrialId];
+    if (!trial) {
+      res.status(404).json({ error: `Trial ${participant.enrolledTrialId} not found` });
+      return;
+    }
+
+    const context: AgentContext = { participant, trial };
+    const llm = createLlmClient();
+    const session = createSession(context, llm);
+    sessions.set(session.sessionId, session);
+
+    res.json({ sessionId: session.sessionId, participantId, trialName: trial.trialName });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[server] /api/session error:', message);
+    res.status(500).json({ error: message });
   }
-
-  const participant = PARTICIPANTS[participantId];
-  if (!participant) {
-    res.status(404).json({ error: `Participant ${participantId} not found` });
-    return;
-  }
-
-  const trial = TRIALS[participant.enrolledTrialId];
-  if (!trial) {
-    res.status(404).json({ error: `Trial ${participant.enrolledTrialId} not found` });
-    return;
-  }
-
-  const context: AgentContext = { participant, trial };
-  const llm = createLlmClient();
-  const session = createSession(context, llm);
-  sessions.set(session.sessionId, session);
-
-  res.json({ sessionId: session.sessionId, participantId, trialName: trial.trialName });
 });
 
 // ---------------------------------------------------------------------------
