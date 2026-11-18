@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clinical Trial Retention Agent — Demo</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #7d8590;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --yellow: #e3b341;
+    --purple: #bc8cff;
+    --red: #f85149;
+    --cyan: #39d353;
+    --header-bg: #1c2128;
+    --font: "SFMono-Regular", "Cascadia Code", "Fira Code", Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    line-height: 1.55;
+    min-height: 100vh;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* ── Window chrome ─────────────────────────────── */
+  .window {
+    width: 900px;
+    max-width: 100vw;
+    margin: 32px auto 48px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.55);
+  }
+
+  .titlebar {
+    background: var(--header-bg);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .dot-red    { background: #ff5f57; }
+  .dot-yellow { background: #febc2e; }
+  .dot-green  { background: #28c840; }
+  .title-label {
+    flex: 1;
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+  }
+
+  .terminal {
+    background: var(--bg);
+    padding: 24px 28px 32px;
+    height: 560px;
+    overflow-y: auto;
+    scroll-behavior: smooth;
+  }
+
+  /* ── Event renderers ───────────────────────────── */
+  .event { margin-bottom: 4px; opacity: 0; animation: none; }
+  .event.visible { opacity: 1; }
+
+  .ev-header {
+    color: var(--blue);
+    font-weight: 700;
+    font-size: 13px;
+    margin: 18px 0 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .ev-header:first-child { margin-top: 0; }
+
+  .ev-context {
+    color: var(--muted);
+    font-size: 12px;
+    padding-left: 2px;
+  }
+
+  .ev-participant {
+    margin: 12px 0 4px;
+  }
+  .ev-participant .badge {
+    display: inline-block;
+    background: #1a3245;
+    color: var(--blue);
+    border: 1px solid #264a6e;
+    border-radius: 4px;
+    padding: 1px 7px;
+    font-size: 11px;
+    font-weight: 700;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+  .ev-participant .bubble {
+    display: inline;
+    color: var(--text);
+  }
+
+  .ev-think {
+    color: var(--muted);
+    font-style: italic;
+    padding-left: 6px;
+    font-size: 12px;
+  }
+  .ev-think::before { content: "⟳ "; }
+
+  .ev-tool-call {
+    margin: 6px 0 0;
+    padding: 6px 10px;
+    background: #12171e;
+    border-left: 2px solid var(--yellow);
+    border-radius: 0 4px 4px 0;
+  }
+  .ev-tool-call .tool-tag {
+    color: var(--yellow);
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+  }
+  .ev-tool-call .tool-tag::before { content: "▶ tool: "; font-weight: 400; color: var(--muted); }
+  .ev-tool-call pre {
+    color: #adbac7;
+    font-size: 11px;
+    margin-top: 4px;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  .ev-tool-result {
+    margin: 2px 0 6px;
+    padding: 6px 10px;
+    background: #0d1a10;
+    border-left: 2px solid var(--green);
+    border-radius: 0 4px 4px 0;
+  }
+  .ev-tool-result .tool-tag {
+    color: var(--green);
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+  }
+  .ev-tool-result .tool-tag::before { content: "✓ result: "; font-weight: 400; color: var(--muted); }
+  .ev-tool-result pre {
+    color: #adbac7;
+    font-size: 11px;
+    margin-top: 4px;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  .ev-agent-reply {
+    margin: 10px 0 4px;
+    padding: 10px 14px;
+    background: #1a1230;
+    border: 1px solid #3d2b6e;
+    border-radius: 6px;
+  }
+  .ev-agent-reply .agent-tag {
+    color: var(--purple);
+    font-weight: 700;
+    font-size: 11px;
+    margin-bottom: 5px;
+    display: block;
+  }
+  .ev-agent-reply .agent-tag::before { content: "🤖 "; }
+  .ev-agent-reply .agent-text {
+    color: var(--text);
+    white-space: pre-wrap;
+    font-size: 13px;
+  }
+
+  .ev-footer {
+    margin-top: 24px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 12px;
+    text-align: center;
+  }
+
+  /* ── Cursor blink ──────────────────────────────── */
+  .cursor {
+    display: inline-block;
+    width: 8px;
+    height: 14px;
+    background: var(--green);
+    vertical-align: text-bottom;
+    animation: blink 1s step-end infinite;
+    margin-left: 2px;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+  /* ── Fade-in ───────────────────────────────────── */
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .fade-in { animation: fadeIn 0.3s ease forwards; }
+
+  /* ── Progress bar ──────────────────────────────── */
+  .progress-bar {
+    height: 3px;
+    background: var(--border);
+    position: relative;
+  }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--blue), var(--purple));
+    width: 0%;
+    transition: width 0.4s ease;
+  }
+
+  /* ── Branding ──────────────────────────────────── */
+  .branding {
+    color: var(--muted);
+    font-size: 11px;
+    margin-bottom: 40px;
+    text-align: center;
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+</style>
+</head>
+<body>
+
+<div class="window" id="window">
+  <div class="titlebar">
+    <span class="dot dot-red"></span>
+    <span class="dot dot-yellow"></span>
+    <span class="dot dot-green"></span>
+    <span class="title-label">clinical-trial-retention-agent — demo</span>
+  </div>
+  <div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
+  <div class="terminal" id="terminal">
+    <span class="cursor" id="cursor"></span>
+  </div>
+</div>
+
+<div class="branding">NYU Stern × IBM watsonx AI Labs &nbsp;|&nbsp; Orange Team &nbsp;|&nbsp; Clinical Trial Retention Agent Prototype</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// Transcript (baked in from dist/transcript.json)
+// ---------------------------------------------------------------------------
+const EVENTS = [
+  {"kind":"header","text":"Clinical Trial Retention Agent","delay":0},
+  {"kind":"context","text":"Participant: Maria Santos  |  Trial: LUMINA-2: Adjuvant Immunotherapy in Stage III NSCLC","delay":600},
+  {"kind":"context","text":"Next visit: V-1042-04 on 2024-11-15T09:00:00","delay":400},
+  {"kind":"header","text":"— Turn 1: Maria reports a scheduling conflict —","delay":1200},
+  {"kind":"participant","label":"Maria Santos","text":"Hi, I have a conflict on November 15th and can\u2019t make my appointment. Can I move it to November 18th?","delay":600},
+  {"kind":"agent-think","text":"Agent thinking\u2026","delay":800},
+  {"kind":"tool-call","label":"checkVisitWindow","data":{"participantId":"P-1042","visitId":"V-1042-04","proposedDate":"2024-11-18"},"delay":500},
+  {"kind":"tool-result","label":"checkVisitWindow","data":{"withinWindow":true,"earliestDate":"2024-11-12","latestDate":"2024-11-19","targetDate":"2024-11-15","reschedulesRemaining":2,"message":"2024-11-18 is within the allowed window (2024-11-12 \u2013 2024-11-19). 2 reschedule(s) remaining for Maria."},"delay":400},
+  {"kind":"tool-call","label":"rescheduleVisit","data":{"participantId":"P-1042","visitId":"V-1042-04","newDateTime":"2024-11-18T09:00:00","reason":"Work conflict on original date"},"delay":500},
+  {"kind":"tool-result","label":"rescheduleVisit","data":{"success":true,"newVisitDateTime":"2024-11-18T09:00:00","confirmationCode":"RSC-97C674B8","message":"Visit V-1042-04 successfully rescheduled to 2024-11-18T09:00:00. Confirmation: RSC-97C674B8. Reason logged: \"Work conflict on original date\"."},"delay":400},
+  {"kind":"tool-call","label":"arrangeTravel","data":{"participantId":"P-1042","visitId":"V-1042-04","visitDateTime":"2024-11-18T09:00:00","requiresHotel":false},"delay":500},
+  {"kind":"tool-result","label":"arrangeTravel","data":{"travelBooked":true,"transportMode":"transit","estimatedCostUsd":5,"hotelBooked":false,"confirmationCodes":["TRV-155E1599"],"message":"Travel arranged for Maria Santos: transit to NYU Langone Medical Center, 550 1st Ave, New York, NY 10016 on 2024-11-18. Estimated cost: $5. Codes: TRV-155E1599."},"delay":400},
+  {"kind":"tool-call","label":"sendReminder","data":{"participantId":"P-1042","visitId":"V-1042-04","channel":"email","daysBeforeVisit":3},"delay":500},
+  {"kind":"tool-result","label":"sendReminder","data":{"sent":true,"channel":"email","sentAt":"2026-11-05T21:41:18.060Z","message":"EMAIL reminder sent to maria.santos@example.com (3 day(s) before visit V-1042-04)."},"delay":400},
+  {"kind":"agent-reply","text":"All done! Here is a summary:\n\u2022 Visit rescheduled to November 18th, 2024 at 9:00 AM.\n\u2022 Transit booked to NYU Langone Medical Center.\n\u2022 Email reminder will be sent 3 days before your visit.\n\nIf anything else comes up, just let me know. Take care, Maria!","delay":600},
+  {"kind":"header","text":"— Turn 2: Maria confirms and mentions she will drive —","delay":800},
+  {"kind":"participant","label":"Maria Santos","text":"Yes please, November 18th at 9 AM works great. I will drive myself.","delay":600},
+  {"kind":"agent-think","text":"Agent thinking\u2026","delay":800},
+  {"kind":"agent-reply","text":"Perfect! I\u2019ve noted that you\u2019ll be driving. Once you\u2019ve completed your visit, I can submit a mileage reimbursement for you. Just let me know how many miles you drove.","delay":600},
+  {"kind":"header","text":"— Turn 3: Maria asks about reimbursement —","delay":800},
+  {"kind":"participant","label":"Maria Santos","text":"How do I get reimbursed for my drive? I will be coming about 25 miles.","delay":600},
+  {"kind":"agent-think","text":"Agent thinking\u2026","delay":800},
+  {"kind":"tool-call","label":"trackReimbursement","data":{"participantId":"P-1042","visitId":"V-1042-04","milesDriven":25,"hotelNights":0},"delay":500},
+  {"kind":"tool-result","label":"trackReimbursement","data":{"reimbursementId":"RMB-A3F7C021","status":"submitted","estimatedAmountUsd":16.75,"submittedAt":"2026-11-05T21:41:20.000Z","message":"Reimbursement RMB-A3F7C021 submitted for $16.75 (25 miles @ $0.67/mi, 0 hotel night(s) @ $150/night)."},"delay":400},
+  {"kind":"agent-reply","text":"Done! I\u2019ve submitted a reimbursement request for you:\n\u2022 Amount: $16.75 (25 miles \u00d7 $0.67/mi)\n\u2022 Reference: RMB-A3F7C021\n\u2022 Status: Submitted \u2014 you\u2019ll receive payment within 5\u20137 business days.\n\nIs there anything else I can help you with before your November 18th visit?","delay":600},
+  {"kind":"footer","text":"Session complete  |  Tools executed: 7  |  Session ID: 0e0c8cf5-ad73-4851-9802-6a69cf963768","delay":1000}
+];
+
+// ---------------------------------------------------------------------------
+// Renderer
+// ---------------------------------------------------------------------------
+const terminal = document.getElementById('terminal');
+const cursor   = document.getElementById('cursor');
+const progress = document.getElementById('progress');
+const total    = EVENTS.length;
+
+function escHtml(str) {
+  return str
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+function appendEl(html) {
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = html;
+  const el = wrapper.firstElementChild;
+  el.classList.add('fade-in');
+  terminal.insertBefore(el, cursor);
+  // Always pull the cursor — the last rendered item — into view
+  cursor.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  return el;
+}
+
+function renderEvent(ev) {
+  switch (ev.kind) {
+    case 'header':
+      appendEl(`<div class="ev-header">${escHtml(ev.text)}</div>`);
+      break;
+    case 'context':
+      appendEl(`<div class="ev-context">${escHtml(ev.text)}</div>`);
+      break;
+    case 'participant':
+      appendEl(`<div class="ev-participant">
+        <span class="badge">${escHtml(ev.label)}</span>
+        <span class="bubble">${escHtml(ev.text)}</span>
+      </div>`);
+      break;
+    case 'agent-think':
+      appendEl(`<div class="ev-think">${escHtml(ev.text)}</div>`);
+      break;
+    case 'tool-call':
+      appendEl(`<div class="ev-tool-call">
+        <span class="tool-tag">${escHtml(ev.label)}</span>
+        <pre>${escHtml(JSON.stringify(ev.data, null, 2))}</pre>
+      </div>`);
+      break;
+    case 'tool-result':
+      appendEl(`<div class="ev-tool-result">
+        <span class="tool-tag">${escHtml(ev.label)}</span>
+        <pre>${escHtml(JSON.stringify(ev.data, null, 2))}</pre>
+      </div>`);
+      break;
+    case 'agent-reply':
+      appendEl(`<div class="ev-agent-reply">
+        <span class="agent-tag">Agent</span>
+        <span class="agent-text">${escHtml(ev.text)}</span>
+      </div>`);
+      break;
+    case 'footer':
+      appendEl(`<div class="ev-footer">${escHtml(ev.text)}</div>`);
+      break;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Playback loop
+// ---------------------------------------------------------------------------
+let idx = 0;
+
+function playNext() {
+  if (idx >= EVENTS.length) return;
+  const ev = EVENTS[idx];
+  renderEvent(ev);
+  progress.style.width = ((idx + 1) / total * 100) + '%';
+  idx++;
+  if (idx < EVENTS.length) {
+    setTimeout(playNext, EVENTS[idx].delay);
+  }
+}
+
+// Start after a short pause so the window renders first
+setTimeout(playNext, 400);
+</script>
+</body>
+</html>
