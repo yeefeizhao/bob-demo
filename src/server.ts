@@ -135,7 +135,8 @@ app.post('/api/session/:id/chat', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 
 const PORT = Number(process.env.PORT ?? 3000);
-app.listen(PORT, () => {
+// Bind to 0.0.0.0 so the server is reachable on Railway and other cloud hosts.
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n  Clinical Trial Retention Agent — Web UI`);
   console.log(`  http://localhost:${PORT}\n`);
 });

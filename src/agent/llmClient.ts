@@ -40,16 +40,208 @@ export interface LlmClient {
  * The mock inspects the last user message to decide which step to simulate.
  */
 export class MockLlmClient implements LlmClient {
-  private step = 0;
-
   /** @inheritdoc */
   async chat(messages: Message[], _tools: ToolDefinition[]): Promise<LlmResponse> {
-    const lastUser = [...messages].reverse().find((m) => m.role === 'user');
-    const content = lastUser?.content ?? '';
+    // Derive context from conversation history rather than a fragile step counter.
+    // This ensures correctness regardless of how many internal tool-loop rounds occur.
+    const toolsRun = messages
+      .filter((m) => m.role === 'tool')
+      .map((m) => m.toolName ?? '');
 
-    // Step 0 – participant reports a conflict → check visit window
-    if (this.step === 0 && content.toLowerCase().includes('conflict')) {
-      this.step = 1;
+    const hasRun = (name: string) => toolsRun.includes(name);
+
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+    const userText = (lastUser?.content ?? '').toLowerCase();
+
+    // Derive participant / visit from context (system prompt contains participant name).
+    // Fall back to P-1042 defaults if not determinable.
+    const systemMsg = messages.find((m) => m.role === 'system')?.content ?? '';
+    const isJames = systemMsg.includes('James');
+    const participantId = isJames ? 'P-1087' : 'P-1042';
+    const visitId = isJames ? 'V-1087-03' : 'V-1042-04';
+    const visitDate = isJames ? '2024-11-18T14:00:00' : '2024-11-18T09:00:00';
+    const firstName = isJames ? 'James' : 'Maria';
+
+    // ── After trackReimbursement ran → confirm submission ─────────────────
+    // (checked before the confirmTravel summary so a reimbursement question
+    //  that arrives after travel booking gets a proper response)
+    if (hasRun('trackReimbursement')) {
+      return {
+        content:
+          `Your reimbursement request has been submitted! You'll receive payment within 5–7 business days. ` +
+          `Is there anything else I can help you with, ${firstName}?`,
+        toolCalls: [],
+        finishReason: 'stop',
+      };
+    }
+
+    // ── Reimbursement question ─────────────────────────────────────────────
+    if (/reimburse|miles|mileage|expense|payment|drive|drove/i.test(userText)) {
+      const milesMatch = userText.match(/(\d+)\s*miles?/);
+      const miles = milesMatch ? parseInt(milesMatch[1]) : 25;
+      return {
+        content: `I'll submit a mileage reimbursement request for you now.`,
+        toolCalls: [
+          {
+            id: 'tc-006',
+            type: 'function',
+            function: {
+              name: 'trackReimbursement',
+              arguments: JSON.stringify({
+                participantId,
+                visitId,
+                milesDriven: miles,
+                hotelNights: 0,
+              }),
+            },
+          },
+        ],
+        finishReason: 'tool_calls',
+      };
+    }
+
+    // ── After confirmTravel ran → give full summary ────────────────────────
+    if (hasRun('confirmTravel')) {
+      return {
+        content:
+          `All done! Here's a summary:\n` +
+          `• Visit rescheduled to November 18th, 2024.\n` +
+          `• Travel confirmed to the site.\n` +
+          `• Email reminder scheduled for 3 days before your visit.\n\n` +
+          `Is there anything else I can help you with, ${firstName}?`,
+        toolCalls: [],
+        finishReason: 'stop',
+      };
+    }
+
+    // ── After getTravelOptions ran ─────────────────────────────────────────
+    if (hasRun('getTravelOptions') && !hasRun('confirmTravel')) {
+      // Check if the agent has already presented the options in a prior assistant turn
+      const optionsAlreadyShown = messages.some(
+        (m) => m.role === 'assistant' && m.content.includes('travel options for your visit')
+      );
+
+      if (optionsAlreadyShown) {
+        // User is responding to the options — if approving, book; otherwise re-ask
+        const approve = /yes|sure|go ahead|ok|great|please|book|confirm|sounds good/i.test(userText);
+        if (approve) {
+          const mode = isJames ? 'rideshare' : 'transit';
+          return {
+            content: "Great, booking your travel now and scheduling a reminder.",
+            toolCalls: [
+              {
+                id: 'tc-004',
+                type: 'function',
+                function: {
+                  name: 'confirmTravel',
+                  arguments: JSON.stringify({
+                    participantId,
+                    visitId,
+                    visitDateTime: visitDate,
+                    transportMode: mode,
+                    requiresHotel: false,
+                    humanConfirmed: true,
+                  }),
+                },
+              },
+              {
+                id: 'tc-005',
+                type: 'function',
+                function: {
+                  name: 'sendReminder',
+                  arguments: JSON.stringify({
+                    participantId,
+                    visitId,
+                    channel: 'email',
+                    daysBeforeVisit: 3,
+                  }),
+                },
+              },
+            ],
+            finishReason: 'tool_calls',
+          };
+        }
+        // User didn't confirm — re-present options
+        return {
+          content: `Just to confirm, would you like me to book the travel option shown above?`,
+          toolCalls: [],
+          finishReason: 'stop',
+        };
+      }
+
+      // Options not yet presented — show them now
+      const travelCost = isJames ? '$75' : '$5';
+      const mode = isJames ? 'rideshare' : 'transit';
+      return {
+        content:
+          `Here are the travel options for your visit:\n` +
+          `• ${mode.charAt(0).toUpperCase() + mode.slice(1)} to the site — estimated cost: ${travelCost}.\n\n` +
+          `No hotel stay is needed. Would you like me to go ahead and book this?`,
+        toolCalls: [],
+        finishReason: 'stop',
+      };
+    }
+
+    // ── After rescheduleVisit ran → ask about travel or fetch options ──────
+    if (hasRun('rescheduleVisit') && !hasRun('getTravelOptions')) {
+      // If the user said yes / confirmed, fetch travel options now
+      const confirmed = /yes|sure|go ahead|ok|great|please|book|travel|option/i.test(userText);
+      if (confirmed) {
+        return {
+          content: "Let me pull up the available travel options and costs for your visit.",
+          toolCalls: [
+            {
+              id: 'tc-003',
+              type: 'function',
+              function: {
+                name: 'getTravelOptions',
+                arguments: JSON.stringify({
+                  participantId,
+                  visitId,
+                  visitDateTime: visitDate,
+                  requiresHotel: false,
+                }),
+              },
+            },
+          ],
+          finishReason: 'tool_calls',
+        };
+      }
+      // Otherwise just confirm the reschedule and ask about travel
+      return {
+        content:
+          `Your visit is now rescheduled to November 18th. ` +
+          `Would you like me to look up travel options to the site for you?`,
+        toolCalls: [],
+        finishReason: 'stop',
+      };
+    }
+
+    // ── After checkVisitWindow ran → reschedule ────────────────────────────
+    if (hasRun('checkVisitWindow') && !hasRun('rescheduleVisit')) {
+      return {
+        content: "November 18th is within the allowed window. I'll go ahead and reschedule your visit now.",
+        toolCalls: [
+          {
+            id: 'tc-002',
+            type: 'function',
+            function: {
+              name: 'rescheduleVisit',
+              arguments: JSON.stringify({
+                participantId,
+                visitId,
+                newDateTime: visitDate,
+                reason: 'Scheduling conflict on original date',
+              }),
+            },
+          },
+        ],
+        finishReason: 'tool_calls',
+      };
+    }
+
+    // ── Conflict / reschedule request → check visit window first ──────────
+    if (/conflict|reschedule|move|cancel|change|can't make|cannot make/i.test(userText)) {
       return {
         content: "I'll check whether your proposed date falls within the protocol window.",
         toolCalls: [
@@ -59,8 +251,8 @@ export class MockLlmClient implements LlmClient {
             function: {
               name: 'checkVisitWindow',
               arguments: JSON.stringify({
-                participantId: 'P-1042',
-                visitId: 'V-1042-04',
+                participantId,
+                visitId,
                 proposedDate: '2024-11-18',
               }),
             },
@@ -70,143 +262,15 @@ export class MockLlmClient implements LlmClient {
       };
     }
 
-    // Step 1 – after checkVisitWindow → reschedule
-    if (this.step === 1) {
-      this.step = 2;
-      return {
-        content:
-          "November 18th is within the allowed window and you have reschedules remaining. I'll go ahead and reschedule your visit now.",
-        toolCalls: [
-          {
-            id: 'tc-002',
-            type: 'function',
-            function: {
-              name: 'rescheduleVisit',
-              arguments: JSON.stringify({
-                participantId: 'P-1042',
-                visitId: 'V-1042-04',
-                newDateTime: '2024-11-18T09:00:00',
-                reason: 'Work conflict on original date',
-              }),
-            },
-          },
-        ],
-        finishReason: 'tool_calls',
-      };
-    }
-
-    // Step 2 – after rescheduleVisit → summarise and ask about travel
-    if (this.step === 2) {
-      this.step = 3;
-      return {
-        content:
-          "Your visit is now rescheduled to November 18th at 9:00 AM. " +
-          "Would you like me to look up travel options to the site for you?",
-        toolCalls: [],
-        finishReason: 'stop',
-      };
-    }
-
-    // Step 3 – participant confirms date and mentions driving → fetch travel options
-    if (this.step === 3) {
-      this.step = 4;
-      return {
-        content: "Let me pull up the available travel options and costs for your visit.",
-        toolCalls: [
-          {
-            id: 'tc-003',
-            type: 'function',
-            function: {
-              name: 'getTravelOptions',
-              arguments: JSON.stringify({
-                participantId: 'P-1042',
-                visitId: 'V-1042-04',
-                visitDateTime: '2024-11-18T09:00:00',
-                requiresHotel: false,
-              }),
-            },
-          },
-        ],
-        finishReason: 'tool_calls',
-      };
-    }
-
-    // Step 4 – after getTravelOptions → present options, await human approval
-    if (this.step === 4) {
-      this.step = 5;
-      return {
-        content:
-          "Here are your travel options for November 18th:\n" +
-          "• Transit to NYU Langone Medical Center — estimated cost: $5.\n\n" +
-          "No hotel is needed. Would you like me to go ahead and book this?",
-        toolCalls: [],
-        finishReason: 'stop',
-      };
-    }
-
-    // Step 5 – participant approves → confirm travel booking + send reminder
-    if (this.step === 5) {
-      this.step = 6;
-      return {
-        content: "Great, booking your travel now and scheduling a reminder.",
-        toolCalls: [
-          {
-            id: 'tc-004',
-            type: 'function',
-            function: {
-              name: 'confirmTravel',
-              arguments: JSON.stringify({
-                participantId: 'P-1042',
-                visitId: 'V-1042-04',
-                visitDateTime: '2024-11-18T09:00:00',
-                transportMode: 'transit',
-                requiresHotel: false,
-                humanConfirmed: true,
-              }),
-            },
-          },
-          {
-            id: 'tc-005',
-            type: 'function',
-            function: {
-              name: 'sendReminder',
-              arguments: JSON.stringify({
-                participantId: 'P-1042',
-                visitId: 'V-1042-04',
-                channel: 'email',
-                daysBeforeVisit: 3,
-              }),
-            },
-          },
-        ],
-        finishReason: 'tool_calls',
-      };
-    }
-
-    // Step 6 – after confirmTravel + sendReminder → full summary
-    if (this.step === 6) {
-      this.step = 7;
-      return {
-        content:
-          'All done! Here is a summary:\n' +
-          '• Visit rescheduled to November 18th, 2024 at 9:00 AM.\n' +
-          '• Travel booked to NYU Langone Medical Center (transit, $5).\n' +
-          '• Email reminder will be sent 3 days before your visit.\n\n' +
-          'If anything else comes up, just let me know. Take care, Maria!',
-        toolCalls: [],
-        finishReason: 'stop',
-      };
-    }
-
-    // Step 7 – reimbursement question
-    this.step = 0;
+    // ── Generic fallback ───────────────────────────────────────────────────
     return {
       content:
-        'All done! Here is a summary:\n' +
-        '• Visit rescheduled to November 18th, 2024 at 9:00 AM.\n' +
-        '• Travel booked to NYU Langone Medical Center (transit, $5).\n' +
-        '• Email reminder will be sent 3 days before your visit.\n\n' +
-        'If anything else comes up, just let me know. Take care, Maria!',
+        `I'm here to help with your clinical trial visit. I can:\n` +
+        `• Reschedule your upcoming visit\n` +
+        `• Arrange travel and check costs\n` +
+        `• Submit reimbursement for mileage or hotel\n` +
+        `• Send visit reminders\n\n` +
+        `What would you like to do, ${firstName}?`,
       toolCalls: [],
       finishReason: 'stop',
     };
