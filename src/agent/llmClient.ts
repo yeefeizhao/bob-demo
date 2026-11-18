@@ -281,9 +281,16 @@ export class WatsonxLlmClient implements LlmClient {
 
 /**
  * Returns the appropriate LLM client based on the MOCK_LLM env variable.
+ * Falls back to MockLlmClient when watsonx credentials are not configured,
+ * so the app stays functional in demo / staging environments.
  */
 export function createLlmClient(): LlmClient {
-  if (process.env.MOCK_LLM === 'true') {
+  const useMock =
+    process.env.MOCK_LLM === 'true' ||
+    !process.env.WATSONX_API_KEY ||
+    !process.env.WATSONX_PROJECT_ID;
+
+  if (useMock) {
     return new MockLlmClient();
   }
   return new WatsonxLlmClient();

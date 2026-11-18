@@ -364,30 +364,52 @@
   // Start session
   // ---------------------------------------------------------------------------
   async function startSession(participant) {
-    const res = await fetch('/api/session', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ participantId: participant.participantId }),
-    });
-    const data = await res.json();
-    sessionId = data.sessionId;
+    const list = document.getElementById('participant-list');
+    const prevHtml = list.innerHTML;
+    list.innerHTML = '<div style="color:#57606a;font-size:13px;padding:8px 0">Starting session…</div>';
 
-    // Update context bar
-    document.getElementById('ctx-name').textContent = participant.name;
-    document.getElementById('ctx-trial').textContent = participant.trialName;
+    try {
+      const res = await fetch('/api/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ participantId: participant.participantId }),
+      });
+      const data = await res.json();
 
-    // Clear messages and show chat panel
-    document.getElementById('messages').innerHTML = '';
-    document.getElementById('setup-panel').style.display = 'none';
-    document.getElementById('chat-panel').style.display = 'flex';
+      if (!res.ok || data.error) {
+        list.innerHTML = prevHtml;
+        const errDiv = document.createElement('div');
+        errDiv.style.cssText = 'color:#dc2626;font-size:13px;margin-bottom:12px;padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px';
+        errDiv.textContent = `Error: ${data.error || 'Could not start session'}`;
+        list.prepend(errDiv);
+        return;
+      }
 
-    // Welcome message from agent
-    appendAgentMessage(
-      `Hi ${participant.name.split(' ')[0]}! I'm your clinical trial assistant. I can help you reschedule visits, arrange travel, track reimbursements, or answer questions about your participation in ${participant.trialName}.\n\nWhat can I help you with today?`,
-      []
-    );
+      sessionId = data.sessionId;
 
-    document.getElementById('msg-input').focus();
+      // Update context bar
+      document.getElementById('ctx-name').textContent = participant.name;
+      document.getElementById('ctx-trial').textContent = participant.trialName;
+
+      // Clear messages and show chat panel
+      document.getElementById('messages').innerHTML = '';
+      document.getElementById('setup-panel').style.display = 'none';
+      document.getElementById('chat-panel').style.display = 'flex';
+
+      // Welcome message from agent
+      appendAgentMessage(
+        `Hi ${participant.name.split(' ')[0]}! I'm your clinical trial assistant. I can help you reschedule visits, arrange travel, track reimbursements, or answer questions about your participation in ${participant.trialName}.\n\nWhat can I help you with today?`,
+        []
+      );
+
+      document.getElementById('msg-input').focus();
+    } catch (e) {
+      list.innerHTML = prevHtml;
+      const errDiv = document.createElement('div');
+      errDiv.style.cssText = 'color:#dc2626;font-size:13px;margin-bottom:12px;padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px';
+      errDiv.textContent = 'Could not reach the server. Please try again.';
+      list.prepend(errDiv);
+    }
   }
 
   // ---------------------------------------------------------------------------
