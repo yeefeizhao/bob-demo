@@ -75,7 +75,7 @@ describe('runTurn', () => {
                   arguments: JSON.stringify({
                     participantId: 'P-1042',
                     visitId: 'V-1042-04',
-                    proposedDate: '2024-11-18',
+                    proposedDate: '2026-11-23',
                   }),
                 },
               },
@@ -161,7 +161,7 @@ describe('guardrails', () => {
                   function: {
                     name: 'confirmTravel',
                     arguments: JSON.stringify({
-                      visitDateTime: '2024-11-15T09:00:00',
+                      visitDateTime: '2026-11-20T09:00:00',
                       transportMode: 'transit',
                       requiresHotel: false,
                       humanConfirmed: true,
@@ -191,7 +191,7 @@ describe('guardrails', () => {
                   type: 'function',
                   function: {
                     name: 'checkVisitWindow',
-                    arguments: JSON.stringify({ participantId: 'P-1087', visitId: 'V-1042-04', proposedDate: '2024-11-14' }),
+                    arguments: JSON.stringify({ participantId: 'P-1087', visitId: 'V-1042-04', proposedDate: '2026-11-19' }),
                   },
                 },
               ],
@@ -293,5 +293,27 @@ describe('OpenAiCompatibleLlmClient', () => {
     } finally {
       global.fetch = realFetch;
     }
+  });
+});
+
+describe('dates relative to today (pinned to 2026-11-19)', () => {
+  it('resolves relative and year-less dates to upcoming ones', async () => {
+    const { parseDate } = await import('./llmClient');
+    expect(parseDate('tomorrow')).toBe('2026-11-20');
+    expect(parseDate('next Monday')).toBe('2026-11-23');
+    expect(parseDate('Nov 24')).toBe('2026-11-24');
+    expect(parseDate('January 5')).toBe('2027-01-05');
+  });
+
+  it('refuses to reschedule into the past', async () => {
+    const { checkVisitWindow } = await import('../tools');
+    const r = checkVisitWindow({ participantId: 'P-1042', visitId: 'V-1042-04', proposedDate: '2026-11-18' });
+    expect(r.withinWindow).toBe(false);
+    expect(r.message).toContain('already passed');
+  });
+
+  it('puts today in the system prompt', async () => {
+    const { buildSystemPrompt } = await import('./systemPrompt');
+    expect(buildSystemPrompt(context)).toContain('Thursday, November 19, 2026');
   });
 });

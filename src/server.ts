@@ -20,9 +20,10 @@ dotenv.config();
 
 import * as path from 'path';
 import express, { Request, Response } from 'express';
-import { PARTICIPANTS, TRIALS } from './data/seed';
+import { PARTICIPANTS, TRIALS, reimbursements, escalations, rescheduleCount } from './data/seed';
 import { createLlmClient, llmMode, llmModelName } from './agent/llmClient';
 import { createSession, AgentSession } from './agent/runner';
+import { today } from './data/clock';
 import { AgentContext } from './types';
 
 const app = express();
@@ -33,6 +34,56 @@ app.use(express.static(path.join(__dirname, 'web')));
 
 // In-memory session store: sessionId → AgentSession
 const sessions = new Map<string, AgentSession>();
+
+/**
+ * Snapshot of the participant's live logistics state, used by the UI sidebar.
+ * Visits, reimbursements and escalations come from the shared store; travel
+ * bookings and reminders come from this session's tool results.
+ */
+function sessionState(session: AgentSession) {
+  const { participant, trial } = session.context;
+  const toolResults = (name: string) =>
+    session.history
+      .filter((m) => m.role === 'tool' && m.toolName === name)
+      .map((m) => {
+        try {
+          return JSON.parse(m.content);
+        } catch {
+          return {};
+        }
+      });
+
+  return {
+    today: today(),
+    visits: participant.upcomingVisits.map((v) => ({
+      visitId: v.visitId,
+      visitType: v.visitType,
+      scheduledDateTime: v.scheduledDateTime,
+      status: v.status,
+      siteLocation: v.siteLocation,
+      window: v.window,
+      reschedulesUsed: rescheduleCount[`${participant.participantId}:${v.visitId}`] ?? 0,
+      maxReschedules: trial.maxReschedulesPerVisit,
+    })),
+    travel: toolResults('confirmTravel')
+      .filter((t) => t.travelBooked)
+      .map((t) => ({
+        transportMode: t.transportMode,
+        estimatedCostUsd: t.estimatedCostUsd,
+        hotelName: t.hotelBooked ? t.hotelName : undefined,
+        confirmationCodes: t.confirmationCodes ?? [],
+      })),
+    reminders: toolResults('sendReminder')
+      .filter((r) => r.sent)
+      .map((r) => ({ channel: r.channel, sentAt: r.sentAt, message: r.message })),
+    reimbursements: reimbursements
+      .filter((r) => r.participantId === participant.participantId)
+      .map((r) => ({ id: r.reimbursementId, amountUsd: r.amountUsd, status: r.status })),
+    escalations: escalations
+      .filter((e) => e.participantId === participant.participantId)
+      .map((e) => ({ id: e.escalationId, urgency: e.urgency, reason: e.reason, notifiedAt: e.notifiedAt })),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // GET /api/health
@@ -104,7 +155,7 @@ app.post('/api/session', (req: Request, res: Response) => {
     const session = createSession(context, llm);
     sessions.set(session.sessionId, session);
 
-    res.json({ sessionId: session.sessionId, participantId, trialName: trial.trialName });
+    res.json({ sessionId: session.sessionId, participantId, trialName: trial.trialName, state: sessionState(session) });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[server] /api/session error:', message);
@@ -139,6 +190,8 @@ app.post('/api/session/:id/chat', async (req: Request, res: Response) => {
     res.json({
       response: result.response,
       toolExecutions: result.toolExecutions,
+      trace: result.trace,
+      state: sessionState(session),
     });
   } catch (err) {
     console.error('[server] chat error:', err);

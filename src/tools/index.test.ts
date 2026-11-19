@@ -27,7 +27,7 @@ beforeEach(() => {
   const p = PARTICIPANTS['P-1042'];
   const v = p.upcomingVisits.find((v) => v.visitId === 'V-1042-04');
   if (v) {
-    v.scheduledDateTime = '2024-11-15T09:00:00';
+    v.scheduledDateTime = '2026-11-20T09:00:00';
     v.status = 'scheduled';
   }
 });
@@ -41,7 +41,7 @@ describe('checkVisitWindow', () => {
     const result = checkVisitWindow({
       participantId: 'P-1042',
       visitId: 'V-1042-04',
-      proposedDate: '2024-11-18',
+      proposedDate: '2026-11-23',
     });
 
     expect(result.withinWindow).toBe(true);
@@ -50,21 +50,33 @@ describe('checkVisitWindow', () => {
   });
 
   it('returns withinWindow=false when proposed date is before the window', () => {
+    // V-1042-05's window is Dec 15–22, so Dec 10 is in the future but too early.
     const result = checkVisitWindow({
       participantId: 'P-1042',
-      visitId: 'V-1042-04',
-      proposedDate: '2024-11-10',
+      visitId: 'V-1042-05',
+      proposedDate: '2026-12-10',
     });
 
     expect(result.withinWindow).toBe(false);
     expect(result.message).toContain('outside the allowed window');
   });
 
+  it('returns withinWindow=false for a date that has already passed', () => {
+    const result = checkVisitWindow({
+      participantId: 'P-1042',
+      visitId: 'V-1042-04',
+      proposedDate: '2026-11-15',
+    });
+
+    expect(result.withinWindow).toBe(false);
+    expect(result.message).toContain('already passed');
+  });
+
   it('returns withinWindow=false when proposed date is after the window', () => {
     const result = checkVisitWindow({
       participantId: 'P-1042',
       visitId: 'V-1042-04',
-      proposedDate: '2024-11-25',
+      proposedDate: '2026-11-30',
     });
 
     expect(result.withinWindow).toBe(false);
@@ -72,7 +84,7 @@ describe('checkVisitWindow', () => {
 
   it('throws an error for an unknown participant', () => {
     expect(() =>
-      checkVisitWindow({ participantId: 'P-XXXX', visitId: 'V-0000-00', proposedDate: '2024-11-18' })
+      checkVisitWindow({ participantId: 'P-XXXX', visitId: 'V-0000-00', proposedDate: '2026-11-23' })
     ).toThrow('Participant P-XXXX not found');
   });
 
@@ -81,7 +93,7 @@ describe('checkVisitWindow', () => {
     const result = checkVisitWindow({
       participantId: 'P-1042',
       visitId: 'V-1042-04',
-      proposedDate: '2024-11-18',
+      proposedDate: '2026-11-23',
     });
     expect(result.reschedulesRemaining).toBe(1);
   });
@@ -96,12 +108,12 @@ describe('rescheduleVisit', () => {
     const result = rescheduleVisit({
       participantId: 'P-1042',
       visitId: 'V-1042-04',
-      newDateTime: '2024-11-18T09:00:00',
+      newDateTime: '2026-11-23T09:00:00',
       reason: 'Work conflict',
     });
 
     expect(result.success).toBe(true);
-    expect(result.newVisitDateTime).toBe('2024-11-18T09:00:00');
+    expect(result.newVisitDateTime).toBe('2026-11-23T09:00:00');
     expect(result.confirmationCode).toMatch(/^RSC-/);
     expect(rescheduleCount['P-1042:V-1042-04']).toBe(1);
   });
@@ -111,7 +123,7 @@ describe('rescheduleVisit', () => {
     const result = rescheduleVisit({
       participantId: 'P-1042',
       visitId: 'V-1042-04',
-      newDateTime: '2024-11-18T09:00:00',
+      newDateTime: '2026-11-23T09:00:00',
       reason: 'Work conflict',
     });
 
@@ -124,7 +136,7 @@ describe('rescheduleVisit', () => {
     const result = rescheduleVisit({
       participantId: 'P-1042',
       visitId: 'V-1042-04',
-      newDateTime: '2024-11-25T09:00:00',
+      newDateTime: '2026-11-30T09:00:00',
       reason: 'Vacation',
     });
 
@@ -136,13 +148,13 @@ describe('rescheduleVisit', () => {
     rescheduleVisit({
       participantId: 'P-1042',
       visitId: 'V-1042-04',
-      newDateTime: '2024-11-18T09:00:00',
+      newDateTime: '2026-11-23T09:00:00',
       reason: 'Work conflict',
     });
 
     const visit = PARTICIPANTS['P-1042'].upcomingVisits.find((v) => v.visitId === 'V-1042-04');
     expect(visit?.status).toBe('rescheduled');
-    expect(visit?.scheduledDateTime).toBe('2024-11-18T09:00:00');
+    expect(visit?.scheduledDateTime).toBe('2026-11-23T09:00:00');
   });
 });
 
@@ -155,7 +167,7 @@ describe('getTravelOptions', () => {
     const result = getTravelOptions({
       participantId: 'P-1042',
       visitId: 'V-1042-04',
-      visitDateTime: '2024-11-18T09:00:00',
+      visitDateTime: '2026-11-23T09:00:00',
       requiresHotel: false,
     });
 
@@ -171,7 +183,7 @@ describe('getTravelOptions', () => {
     const result = getTravelOptions({
       participantId: 'P-1087',
       visitId: 'V-1087-03',
-      visitDateTime: '2024-11-18T14:00:00',
+      visitDateTime: '2026-11-23T14:00:00',
       requiresHotel: false,
     });
 
@@ -183,7 +195,7 @@ describe('getTravelOptions', () => {
     const result = getTravelOptions({
       participantId: 'P-1042',
       visitId: 'V-1042-04',
-      visitDateTime: '2024-11-18T09:00:00',
+      visitDateTime: '2026-11-23T09:00:00',
       requiresHotel: true,
     });
 
@@ -200,7 +212,7 @@ describe('getTravelOptions', () => {
     const result = getTravelOptions({
       participantId: 'P-1042',
       visitId: 'V-1042-04',
-      visitDateTime: '2024-11-18T09:00:00',
+      visitDateTime: '2026-11-23T09:00:00',
       requiresHotel: false,
     });
 
@@ -218,7 +230,7 @@ describe('confirmTravel', () => {
     const result = confirmTravel({
       participantId: 'P-1042',
       visitId: 'V-1042-04',
-      visitDateTime: '2024-11-18T09:00:00',
+      visitDateTime: '2026-11-23T09:00:00',
       transportMode: 'transit',
       requiresHotel: false,
       humanConfirmed: true,
@@ -235,7 +247,7 @@ describe('confirmTravel', () => {
     const result = confirmTravel({
       participantId: 'P-1042',
       visitId: 'V-1042-04',
-      visitDateTime: '2024-11-18T09:00:00',
+      visitDateTime: '2026-11-23T09:00:00',
       transportMode: 'transit',
       requiresHotel: false,
       humanConfirmed: false,
@@ -250,7 +262,7 @@ describe('confirmTravel', () => {
     const result = confirmTravel({
       participantId: 'P-1042',
       visitId: 'V-1042-04',
-      visitDateTime: '2024-11-18T09:00:00',
+      visitDateTime: '2026-11-23T09:00:00',
       transportMode: 'transit',
       requiresHotel: true,
       humanConfirmed: true,
@@ -321,7 +333,7 @@ describe('escalateToCoordinator', () => {
     });
 
     expect(result.escalationId).toMatch(/^ESC-/);
-    expect(result.coordinatorEmail).toBe('coordinator@meridianbiosciences.com');
+    expect(result.coordinatorEmail).toBe('support@email.com');
     expect(escalations).toHaveLength(1);
     expect(escalations[0].urgency).toBe('high');
   });

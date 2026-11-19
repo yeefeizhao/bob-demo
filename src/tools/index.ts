@@ -6,6 +6,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import { today } from '../data/clock';
 import {
   CheckVisitWindowInput,
   CheckVisitWindowOutput,
@@ -72,12 +73,15 @@ export function checkVisitWindow(input: CheckVisitWindowInput): CheckVisitWindow
   const remaining = trial.maxReschedulesPerVisit - used;
 
   const proposed = toDateString(input.proposedDate);
+  const inPast = proposed < today();
   const withinWindow =
-    proposed >= visit.window.earliestDate && proposed <= visit.window.latestDate;
+    !inPast && proposed >= visit.window.earliestDate && proposed <= visit.window.latestDate;
 
-  const message = withinWindow
-    ? `${proposed} is within the allowed window (${visit.window.earliestDate} – ${visit.window.latestDate}). ${remaining} reschedule(s) remaining for ${participant.firstName}.`
-    : `${proposed} is outside the allowed window (${visit.window.earliestDate} – ${visit.window.latestDate}). Coordinator approval may be required.`;
+  const message = inPast
+    ? `${proposed} has already passed (today is ${today()}). Please choose a future date between ${visit.window.earliestDate} and ${visit.window.latestDate}.`
+    : withinWindow
+      ? `${proposed} is within the allowed window (${visit.window.earliestDate} – ${visit.window.latestDate}). ${remaining} reschedule(s) remaining for ${participant.firstName}.`
+      : `${proposed} is outside the allowed window (${visit.window.earliestDate} – ${visit.window.latestDate}). Coordinator approval may be required.`;
 
   return {
     withinWindow,
@@ -111,8 +115,16 @@ export function rescheduleVisit(input: RescheduleVisitInput): RescheduleVisitOut
     };
   }
 
-  // Check proposed date is within window
+  // Check proposed date is in the future and within window
   const proposed = toDateString(input.newDateTime);
+  if (proposed < today()) {
+    return {
+      success: false,
+      newVisitDateTime: input.newDateTime,
+      confirmationCode: '',
+      message: `Cannot reschedule: ${proposed} has already passed (today is ${today()}).`,
+    };
+  }
   if (proposed < visit.window.earliestDate || proposed > visit.window.latestDate) {
     return {
       success: false,

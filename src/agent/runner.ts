@@ -75,6 +75,19 @@ function defaultVisitId(context: AgentContext): string {
 // Agent runner
 // ---------------------------------------------------------------------------
 
+/** Stages of the Receive -> Plan -> Execute -> Monitor -> Escalate loop. */
+export type TraceStage = 'receive' | 'guardrail' | 'plan' | 'execute' | 'monitor' | 'escalate' | 'respond';
+
+/** One step of how the agent handled a turn (shown as the reasoning timeline). */
+export interface TraceStep {
+  stage: TraceStage;
+  title: string;
+  detail?: string;
+  status: 'ok' | 'blocked' | 'alert' | 'error';
+  /** Milliseconds since the turn started. */
+  ms: number;
+}
+
 export interface TurnResult {
   /** Final text response from the agent */
   response: string;
@@ -82,6 +95,31 @@ export interface TurnResult {
   messages: Message[];
   /** Tool calls executed this turn with their results */
   toolExecutions: Array<{ toolName: string; input: unknown; output: unknown }>;
+  /** Step-by-step trace of how the agent handled this turn */
+  trace: TraceStep[];
+}
+
+const TOOL_TITLES: Record<string, string> = {
+  checkVisitWindow: 'Checked protocol visit window',
+  rescheduleVisit: 'Rescheduled visit',
+  getTravelOptions: 'Looked up travel options',
+  confirmTravel: 'Booked travel',
+  trackReimbursement: 'Submitted reimbursement',
+  escalateToCoordinator: 'Notified site coordinator',
+  sendReminder: 'Scheduled reminder',
+};
+
+/** Short human-readable summary of tool-call arguments for the trace. */
+function describeArgs(args: string): string {
+  try {
+    const a = JSON.parse(args || '{}');
+    return Object.entries(a)
+      .filter(([k]) => !['participantId', 'humanConfirmed'].includes(k))
+      .map(([k, v]) => `${k}: ${typeof v === 'string' ? v.slice(0, 60) : JSON.stringify(v)}`)
+      .join(', ');
+  } catch {
+    return '';
+  }
 }
 
 /**
@@ -100,6 +138,12 @@ export async function runTurn(
 ): Promise<TurnResult> {
   const toolExecutions: TurnResult['toolExecutions'] = [];
   const coordinatorEmail = context.trial.coordinatorEmail;
+  const started = Date.now();
+  const trace: TraceStep[] = [];
+  const step = (stage: TraceStage, title: string, detail?: string, status: TraceStep['status'] = 'ok') =>
+    trace.push({ stage, title, detail, status, ms: Date.now() - started });
+
+  step('receive', 'Received participant message', `"${userMessage.slice(0, 120)}${userMessage.length > 120 ? '...' : ''}"`);
 
   if (history.length === 0) {
     history.push({ role: 'system', content: buildSystemPrompt(context) });
@@ -113,6 +157,14 @@ export async function runTurn(
     try {
       input = rawArgs ? JSON.parse(rawArgs) : {};
       // Privacy guardrail: the agent can only ever act on this participant.
+      if (input.participantId && input.participantId !== context.participant.participantId) {
+        step(
+          'monitor',
+          'Privacy guard: corrected participant ID',
+          `Model referenced ${String(input.participantId)}; scoped back to ${context.participant.participantId}.`,
+          'alert'
+        );
+      }
       input.participantId = context.participant.participantId;
       input.visitId = input.visitId || defaultVisitId(context);
 
@@ -120,8 +172,10 @@ export async function runTurn(
         const blocked = checkBookingApproval(history);
         if (blocked) {
           output = { travelBooked: false, error: blocked };
+          step('monitor', 'Human-approval check: booking blocked', 'The participant has not explicitly approved a travel option yet.', 'blocked');
         } else {
           input.humanConfirmed = true;
+          step('monitor', 'Human-approval check: passed', 'The participant explicitly approved the travel option.');
         }
       }
       if (output === undefined) output = dispatchTool(name, input);
@@ -129,6 +183,17 @@ export async function runTurn(
       output = { error: err instanceof Error ? err.message : String(err) };
     }
 
+    const out = (output ?? {}) as Record<string, unknown>;
+    const gateBlocked = name === 'confirmTravel' && out.travelBooked === false && !!out.error;
+    if (!gateBlocked) {
+      const failed = !!out.error || out.success === false;
+      step(
+        name === 'escalateToCoordinator' ? 'escalate' : 'execute',
+        TOOL_TITLES[name] ?? name,
+        String(out.error ?? out.message ?? ''),
+        failed ? 'error' : name === 'escalateToCoordinator' ? 'alert' : 'ok'
+      );
+    }
     toolExecutions.push({ toolName: name, input, output });
     history.push({
       role: 'tool',
@@ -140,13 +205,25 @@ export async function runTurn(
 
   const finish = (text: string): TurnResult => {
     const safe = screenOutput(text, coordinatorEmail);
+    if (safe !== text) {
+      step('monitor', 'Output screen: unsafe reply replaced', 'The draft reply looked like medical advice and was replaced with a safe response.', 'alert');
+    }
     history.push({ role: 'assistant', content: safe });
-    return { response: safe, messages: history, toolExecutions };
+    step('respond', 'Replied to participant');
+    return { response: safe, messages: history, toolExecutions, trace };
   };
 
   // ── Input guardrails: handled deterministically, never sent to the model ──
   const screen = screenInput(userMessage);
-  if (screen.kind !== 'allow') {
+  if (screen.kind === 'allow') {
+    step('guardrail', 'Safety screen passed', 'No medical-advice or emergency content detected; sent to the AI model.');
+  } else {
+    step(
+      'guardrail',
+      screen.kind === 'emergency' ? 'Safety screen: possible emergency' : 'Safety screen: medical question detected',
+      'Handled with a fixed safe response. The AI model was not used for this message.',
+      'alert'
+    );
     const urgency = screen.kind === 'emergency' ? 'high' : 'medium';
     const reason =
       screen.kind === 'emergency'
@@ -180,6 +257,7 @@ export async function runTurn(
       llmResponse = await llm.chat(history, TOOL_DEFINITIONS);
     } catch (err) {
       console.error('[agent] LLM call failed:', err);
+      step('plan', 'AI model unavailable', err instanceof Error ? err.message.slice(0, 160) : String(err), 'error');
       return finish(
         `Sorry — I'm having trouble connecting right now. Please try again in a moment, ` +
           `or contact your site coordinator at ${coordinatorEmail} if it's urgent.`
@@ -187,12 +265,16 @@ export async function runTurn(
     }
 
     if (llmResponse.toolCalls.length === 0) {
+      step('plan', 'AI composed a reply', round === 0 ? 'No tools needed for this message.' : 'Summarised the tool results for the participant.');
       const text = (llmResponse.content ?? '').trim();
       return finish(
         text || `Sorry, I didn't quite get that. Could you rephrase what you need help with?`
       );
     }
 
+    for (const tc of llmResponse.toolCalls) {
+      step('plan', `AI decided to call ${tc.function.name}`, describeArgs(tc.function.arguments));
+    }
     history.push({
       role: 'assistant',
       content: llmResponse.content ?? '',

@@ -6,14 +6,19 @@
  */
 
 import { AgentContext } from '../types';
+import { today } from '../data/clock';
 
-/**
- * The "current date" used by the demo. Seed visits are in November 2024, so we
- * pin the agent's notion of today to just before them; otherwise a live model
- * would treat every visit as already in the past. Override with DEMO_TODAY.
- */
+/** Today's date (US Eastern) as YYYY-MM-DD; override with DEMO_TODAY. */
 export function demoToday(): string {
-  return process.env.DEMO_TODAY ?? '2024-11-08';
+  return today();
+}
+
+/** "2026-11-19" → "Thursday, November 19, 2026" */
+function longDate(iso: string): string {
+  const d = new Date(`${iso}T12:00:00`);
+  return isNaN(d.getTime())
+    ? iso
+    : d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 }
 
 /**
@@ -58,7 +63,7 @@ You ONLY help with trial logistics:
 - After an action, give a short summary and the next step.
 
 ## Context
-- Today's date: ${demoToday()}
+- Today's date: ${longDate(demoToday())} (${demoToday()}). Interpret relative dates ("tomorrow", "next Tuesday") from this. Never reschedule to a date that has already passed.
 - Participant: ${p.firstName} ${p.lastName} (participantId: ${p.participantId}), home: ${p.homeCity}, ${p.homeState}
 - Upcoming visits:
 ${visits}

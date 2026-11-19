@@ -10,6 +10,7 @@
 import { Message, ToolCall } from '../types';
 import { ToolDefinition } from './toolDefinitions';
 import { PARTICIPANTS, TRIALS, reimbursements } from '../data/seed';
+import { today } from '../data/clock';
 
 export type { ToolCall };
 
@@ -30,31 +31,54 @@ export interface LlmClient {
 
 const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
 
-/** Parses a date like "Nov 20", "November 20th", "11/20", "2024-11-20". Returns YYYY-MM-DD or null. */
-export function parseDate(text: string, defaultYear = 2024): string | null {
-  const t = text.toLowerCase();
+/**
+ * Parses a date like "Nov 20", "November 20th", "11/20", "2026-11-20",
+ * "tomorrow" or "next Monday". Dates without a year resolve to the next
+ * upcoming occurrence relative to today. Returns YYYY-MM-DD or null.
+ */
+export function parseDate(text: string): string | null {
+  const now = today();
+  const thisYear = +now.slice(0, 4);
   const pad = (n: number) => String(n).padStart(2, '0');
+  const iso = (d: Date) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+  const base = new Date(`${now}T00:00:00Z`);
+  const t = text.toLowerCase();
+
+  if (/\btomorrow\b/.test(t)) return iso(new Date(base.getTime() + 86_400_000));
+  const wd = t.match(/\b(?:next |this |on )?(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/);
+  if (wd && !/\d/.test(t)) {
+    const target = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].indexOf(wd[1]);
+    const diff = ((target - base.getUTCDay() + 7) % 7) || 7;
+    return iso(new Date(base.getTime() + diff * 86_400_000));
+  }
+
+  // Month/day without a year → next upcoming occurrence.
+  const md = (month: number, day: number) => {
+    const candidate = `${thisYear}-${pad(month)}-${pad(day)}`;
+    return candidate < now && month < +now.slice(5, 7) ? `${thisYear + 1}-${pad(month)}-${pad(day)}` : candidate;
+  };
   let m = t.match(/\b(20\d\d)-(\d{1,2})-(\d{1,2})\b/);
   if (m) return `${m[1]}-${pad(+m[2])}-${pad(+m[3])}`;
   m = t.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
   if (m) {
-    const y = m[3] ? (m[3].length === 2 ? 2000 + +m[3] : +m[3]) : defaultYear;
+    if (!m[3]) return md(+m[1], +m[2]);
+    const y = m[3].length === 2 ? 2000 + +m[3] : +m[3];
     return `${y}-${pad(+m[1])}-${pad(+m[2])}`;
   }
   m = t.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b/);
   if (m) {
     const month = MONTHS.findIndex((mo) => mo.startsWith(m![1].slice(0, 3))) + 1;
-    return `${defaultYear}-${pad(month)}-${pad(+m[2])}`;
+    return md(month, +m[2]);
   }
   m = t.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/);
   if (m) {
     const month = MONTHS.findIndex((mo) => mo.startsWith(m![2])) + 1;
-    return `${defaultYear}-${pad(month)}-${pad(+m[1])}`;
+    return md(month, +m[1]);
   }
   return null;
 }
 
-/** "2024-11-18T14:00:00" → "Monday, November 18 at 2:00 PM" */
+/** "2026-11-23T14:00:00" → "Monday, November 23 at 2:00 PM" */
 export function friendlyDate(iso: string): string {
   const d = new Date(iso.length === 10 ? `${iso}T12:00:00` : iso);
   if (isNaN(d.getTime())) return iso;
@@ -140,6 +164,9 @@ export class MockLlmClient implements LlmClient {
             const time = visit.scheduledDateTime.slice(10) || 'T09:00:00';
             return call(['rescheduleVisit', { newDateTime: `${proposed}${time}`, reason: 'Participant scheduling conflict' }]);
           }
+          if (String(out.message ?? '').includes('already passed')) {
+            return say(`${friendlyDate(proposed)} has already passed. Your visit can be moved to any day between ${windowText} — which date works for you?`);
+          }
           if (out.withinWindow) {
             return say(`${friendlyDate(proposed)} is inside your window, but this visit has no reschedules left under the protocol. I can ask your coordinator to review an exception — would you like me to do that?`);
           }
@@ -199,7 +226,7 @@ export class MockLlmClient implements LlmClient {
     if (prevAssistant.includes('look up travel options') && affirm) {
       return call(['getTravelOptions', { visitDateTime: visit.scheduledDateTime, requiresHotel: /hotel|overnight|stay/.test(u) }]);
     }
-    if (prevAssistant.includes('which date would work') || prevAssistant.includes('pick a date')) {
+    if (/which date|what date|pick a date|choose a date|new date/.test(prevAssistant)) {
       const d = parseDate(u);
       if (d) return call(['checkVisitWindow', { proposedDate: d }]);
     }
