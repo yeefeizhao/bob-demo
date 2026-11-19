@@ -8,6 +8,7 @@
  *   (or: npm run serve)
  *
  * Endpoints:
+ *   GET  /api/health              – status + which LLM backend is active
  *   GET  /api/participants        – list available participants
  *   POST /api/session             – create a new agent session
  *   POST /api/session/:id/chat    – send a message to an existing session
@@ -20,7 +21,7 @@ dotenv.config();
 import * as path from 'path';
 import express, { Request, Response } from 'express';
 import { PARTICIPANTS, TRIALS } from './data/seed';
-import { createLlmClient } from './agent/llmClient';
+import { createLlmClient, llmMode } from './agent/llmClient';
 import { createSession, AgentSession } from './agent/runner';
 import { AgentContext } from './types';
 
@@ -32,6 +33,20 @@ app.use(express.static(path.join(__dirname, 'web')));
 
 // In-memory session store: sessionId → AgentSession
 const sessions = new Map<string, AgentSession>();
+
+// ---------------------------------------------------------------------------
+// GET /api/health
+// ---------------------------------------------------------------------------
+
+/** Reports which LLM backend is active so the UI can show demo vs live mode. */
+app.get('/api/health', (_req: Request, res: Response) => {
+  const mode = llmMode();
+  res.json({
+    ok: true,
+    llm: mode,
+    model: mode === 'watsonx' ? (process.env.WATSONX_MODEL_ID ?? 'meta-llama/llama-3-3-70b-instruct') : 'scripted-mock',
+  });
+});
 
 // ---------------------------------------------------------------------------
 // GET /api/participants
@@ -144,5 +159,8 @@ const PORT = Number(process.env.PORT ?? 3000);
 // Bind to 0.0.0.0 so the server is reachable on Railway and other cloud hosts.
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n  Clinical Trial Retention Agent — Web UI`);
-  console.log(`  http://localhost:${PORT}\n`);
+  console.log(`  http://localhost:${PORT}`);
+  console.log(
+    `  LLM backend: ${llmMode()}${llmMode() === 'mock' ? ' (set WATSONX_API_KEY + WATSONX_PROJECT_ID for live mode)' : ''}\n`
+  );
 });

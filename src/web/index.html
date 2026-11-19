@@ -378,6 +378,7 @@
     <h1>Clinical Trial Retention Agent</h1>
     <p>NYU Stern × IBM watsonx AI Labs</p>
   </div>
+  <span id="llm-badge" style="margin-left:auto;font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px;background:#f3f4f6;color:#6b7280;display:none"></span>
 </header>
 
 <!-- Participant selection -->
@@ -603,7 +604,7 @@
     row.className = 'msg-row agent';
     row.innerHTML = `
       <div class="avatar agent">AI</div>
-      <div class="bubble">${escHtml(text)}</div>
+      <div class="bubble">${formatAgentText(text)}</div>
     `;
     msgs.appendChild(row);
 
@@ -702,6 +703,11 @@
     chev.textContent = open ? '▼' : '▶';
   }
 
+  /** Escapes HTML, then renders **bold** from the agent's markdown. */
+  function formatAgentText(str) {
+    return escHtml(str).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  }
+
   function escHtml(str) {
     if (str === null || str === undefined) return '';
     return String(str)
@@ -715,6 +721,21 @@
   // Boot
   // ---------------------------------------------------------------------------
   loadParticipants();
+
+  // Show which LLM backend is active (live watsonx vs scripted demo).
+  fetch('/api/health').then(r => r.json()).then(h => {
+    const b = document.getElementById('llm-badge');
+    if (!b) return;
+    if (h.llm === 'watsonx') {
+      b.textContent = 'Live · ' + h.model;
+      b.style.background = '#dcfce7'; b.style.color = '#166534';
+    } else {
+      b.textContent = 'Demo mode (scripted)';
+      b.style.background = '#fef3c7'; b.style.color = '#92400e';
+      b.title = 'No watsonx credentials configured — responses are scripted.';
+    }
+    b.style.display = 'inline-block';
+  }).catch(() => {});
 </script>
 </body>
 </html>

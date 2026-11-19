@@ -185,11 +185,24 @@ export interface SendReminderOutput {
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
+export interface ToolCall {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string; // JSON string
+  };
+}
+
 export interface Message {
   role: MessageRole;
   content: string;
+  /** For tool-result messages: the id of the tool call this answers. */
   toolCallId?: string;
+  /** For tool-result messages: the tool that produced this result. */
   toolName?: string;
+  /** For assistant messages: tool calls the model requested in this message. */
+  toolCalls?: ToolCall[];
 }
 
 export interface AgentContext {

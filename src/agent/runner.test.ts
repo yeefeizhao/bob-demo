@@ -94,7 +94,7 @@ describe('runTurn', () => {
     expect(result.response).toBe('Window checked!');
   });
 
-  it('throws on an unknown tool name', async () => {
+  it('feeds an unknown tool error back to the model instead of crashing', async () => {
     const history: Message[] = [];
     let callCount = 0;
     const llm: LlmClient = {
@@ -117,7 +117,119 @@ describe('runTurn', () => {
       },
     };
 
-    await expect(runTurn('do it', context, history, llm)).rejects.toThrow('Unknown tool');
+    const result = await runTurn('do it', context, history, llm);
+    expect(result.response).toBe('done');
+    const toolMsg = history.find((m) => m.role === 'tool');
+    expect(toolMsg?.content).toContain('Unknown tool');
+  });
+
+  it('returns a friendly message when the LLM call fails', async () => {
+    const history: Message[] = [];
+    const llm: LlmClient = { chat: async () => { throw new Error('network down'); } };
+    const result = await runTurn('Hello', context, history, llm);
+    expect(result.response).toContain('trouble connecting');
+  });
+});
+
+describe('guardrails', () => {
+  it('answers medical questions without calling the LLM and notifies the site', async () => {
+    const history: Message[] = [];
+    const llm: LlmClient = { chat: jest.fn() };
+    const result = await runTurn(
+      "I've been getting headaches since starting the study drug. Should I skip my next dose?",
+      context,
+      history,
+      llm
+    );
+    expect(llm.chat).not.toHaveBeenCalled();
+    expect(result.response).toContain('not able to give medical advice');
+    expect(result.toolExecutions[0].toolName).toBe('escalateToCoordinator');
+  });
+
+  it('blocks confirmTravel when the participant has not approved', async () => {
+    const history: Message[] = [];
+    let n = 0;
+    const llm: LlmClient = {
+      chat: async (): Promise<LlmResponse> =>
+        n++ === 0
+          ? {
+              content: null,
+              toolCalls: [
+                {
+                  id: 'tc-book',
+                  type: 'function',
+                  function: {
+                    name: 'confirmTravel',
+                    arguments: JSON.stringify({
+                      visitDateTime: '2024-11-15T09:00:00',
+                      transportMode: 'transit',
+                      requiresHotel: false,
+                      humanConfirmed: true,
+                    }),
+                  },
+                },
+              ],
+              finishReason: 'tool_calls',
+            }
+          : { content: 'ok', toolCalls: [], finishReason: 'stop' },
+    };
+    const result = await runTurn('I need a ride to my visit', context, history, llm);
+    expect(result.toolExecutions[0].output).toMatchObject({ travelBooked: false });
+  });
+
+  it('forces tool calls onto the session participant', async () => {
+    const history: Message[] = [];
+    let n = 0;
+    const llm: LlmClient = {
+      chat: async (): Promise<LlmResponse> =>
+        n++ === 0
+          ? {
+              content: null,
+              toolCalls: [
+                {
+                  id: 'tc-x',
+                  type: 'function',
+                  function: {
+                    name: 'checkVisitWindow',
+                    arguments: JSON.stringify({ participantId: 'P-1087', visitId: 'V-1042-04', proposedDate: '2024-11-14' }),
+                  },
+                },
+              ],
+              finishReason: 'tool_calls',
+            }
+          : { content: 'ok', toolCalls: [], finishReason: 'stop' },
+    };
+    const result = await runTurn('move my visit to nov 14', context, history, llm);
+    expect(result.toolExecutions[0].input).toMatchObject({ participantId: 'P-1042' });
+  });
+});
+
+describe('MockLlmClient conversation (Railway regression)', () => {
+  it('does not repeat the booking summary for unrelated follow-ups', async () => {
+    const { MockLlmClient } = await import('./llmClient');
+    const james: AgentContext = { participant: PARTICIPANTS['P-1087'], trial: TRIALS['ONCO-2024-001'] };
+    const session = createSession(james, new MockLlmClient());
+
+    const r1 = await session.chat('I have a conflict and need to reschedule my visit');
+    expect(r1.response).toContain('Which date would work');
+
+    const r2 = await session.chat('November 20 works');
+    expect(r2.toolExecutions.map((t) => t.toolName)).toEqual(['checkVisitWindow', 'rescheduleVisit']);
+    expect(r2.response).toContain('November 20');
+
+    const r3 = await session.chat('yes');
+    expect(r3.toolExecutions.map((t) => t.toolName)).toEqual(['getTravelOptions']);
+
+    const r4 = await session.chat('Yes, please book Confirm travel — rideshare');
+    expect(r4.toolExecutions.map((t) => t.toolName)).toEqual(['confirmTravel', 'sendReminder']);
+    expect(r4.response).toContain('All set');
+
+    const r5 = await session.chat("I've been getting headaches since starting the study drug. Should I skip my next dose?");
+    expect(r5.response).toContain('not able to give medical advice');
+
+    const r6 = await session.chat('yes');
+    expect(r6.response).not.toContain('All set');
+    expect(r6.toolExecutions).toHaveLength(0);
   });
 });
 

@@ -1,23 +1,17 @@
 /**
  * @file agent/llmClient.ts
  * Thin LLM client wrapper that supports both a live IBM watsonx backend
- * and a deterministic mock for local development without credentials.
+ * and a scripted mock for local development without credentials.
  *
- * Set MOCK_LLM=true in .env to use the mock.
- * For live calls, set WATSONX_API_KEY, WATSONX_PROJECT_ID, and WATSONX_URL.
+ * Live mode: set WATSONX_API_KEY and WATSONX_PROJECT_ID (and optionally
+ * WATSONX_URL, WATSONX_MODEL_ID). Set MOCK_LLM=true to force the mock.
  */
 
-import { Message } from '../types';
+import { Message, ToolCall } from '../types';
 import { ToolDefinition } from './toolDefinitions';
+import { PARTICIPANTS, TRIALS, reimbursements } from '../data/seed';
 
-export interface ToolCall {
-  id: string;
-  type: 'function';
-  function: {
-    name: string;
-    arguments: string; // JSON string
-  };
-}
+export type { ToolCall };
 
 export interface LlmResponse {
   content: string | null;
@@ -31,249 +25,258 @@ export interface LlmClient {
 }
 
 // ---------------------------------------------------------------------------
-// Mock LLM – scripted responses for the scheduling-conflict demo scenario
+// Helpers
 // ---------------------------------------------------------------------------
 
+const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+
+/** Parses a date like "Nov 20", "November 20th", "11/20", "2024-11-20". Returns YYYY-MM-DD or null. */
+export function parseDate(text: string, defaultYear = 2024): string | null {
+  const t = text.toLowerCase();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  let m = t.match(/\b(20\d\d)-(\d{1,2})-(\d{1,2})\b/);
+  if (m) return `${m[1]}-${pad(+m[2])}-${pad(+m[3])}`;
+  m = t.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+  if (m) {
+    const y = m[3] ? (m[3].length === 2 ? 2000 + +m[3] : +m[3]) : defaultYear;
+    return `${y}-${pad(+m[1])}-${pad(+m[2])}`;
+  }
+  m = t.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b/);
+  if (m) {
+    const month = MONTHS.findIndex((mo) => mo.startsWith(m![1].slice(0, 3))) + 1;
+    return `${defaultYear}-${pad(month)}-${pad(+m[2])}`;
+  }
+  m = t.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/);
+  if (m) {
+    const month = MONTHS.findIndex((mo) => mo.startsWith(m![2])) + 1;
+    return `${defaultYear}-${pad(month)}-${pad(+m[1])}`;
+  }
+  return null;
+}
+
+/** "2024-11-18T14:00:00" → "Monday, November 18 at 2:00 PM" */
+export function friendlyDate(iso: string): string {
+  const d = new Date(iso.length === 10 ? `${iso}T12:00:00` : iso);
+  if (isNaN(d.getTime())) return iso;
+  const day = d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  if (iso.length === 10) return day;
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return `${day} at ${time}`;
+}
+
+// ---------------------------------------------------------------------------
+// Mock LLM – scripted, conversation-aware responses (no credentials needed)
+// ---------------------------------------------------------------------------
+
+const AFFIRM = /\b(yes|yep|yeah|sure|ok(ay)?|please|go ahead|book|confirm|sounds good|do it|that works|correct|right)\b/i;
+const DECLINE = /\b(no|nope|not now|don'?t|do not|cancel|myself|never ?mind)\b/i;
+
 /**
- * A scripted mock that drives a deterministic demo of the scheduling-conflict
- * use case without requiring any API credentials.
- * The mock inspects the last user message to decide which step to simulate.
+ * Scripted mock LLM for demos without watsonx credentials.
+ *
+ * It looks at (a) tools that ran during the *current* turn, to describe their
+ * results, and (b) what the assistant last asked, to interpret short replies
+ * like "yes". It never relies on "has this tool ever run", so it doesn't get
+ * stuck repeating old summaries. Medical/emergency questions are handled by
+ * the runner's guardrails before the mock is called.
  */
 export class MockLlmClient implements LlmClient {
-  /** @inheritdoc */
   async chat(messages: Message[], _tools: ToolDefinition[]): Promise<LlmResponse> {
-    // Derive context from conversation history rather than a fragile step counter.
-    // This ensures correctness regardless of how many internal tool-loop rounds occur.
-    const toolsRun = messages
-      .filter((m) => m.role === 'tool')
-      .map((m) => m.toolName ?? '');
+    // ── Context ───────────────────────────────────────────────────────────
+    const system = messages.find((m) => m.role === 'system')?.content ?? '';
+    const pid = system.match(/participantId: (\S+?)\)/)?.[1] ?? 'P-1042';
+    const participant = PARTICIPANTS[pid] ?? Object.values(PARTICIPANTS)[0];
+    const trial = TRIALS[participant.enrolledTrialId];
+    const visit = participant.upcomingVisits.find((v) => v.status !== 'cancelled') ?? participant.upcomingVisits[0];
+    const first = participant.firstName;
 
-    const hasRun = (name: string) => toolsRun.includes(name);
+    let lastUserIdx = -1;
+    for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === 'user') { lastUserIdx = i; break; }
+    const userText = messages[lastUserIdx]?.content ?? '';
+    const u = userText.toLowerCase();
 
-    const lastUser = [...messages].reverse().find((m) => m.role === 'user');
-    const userText = (lastUser?.content ?? '').toLowerCase();
+    const turn = messages.slice(lastUserIdx + 1);
+    const turnTools = turn.filter((m) => m.role === 'tool');
+    const lastTool = turnTools[turnTools.length - 1];
 
-    // Derive participant / visit from context (system prompt contains participant name).
-    // Fall back to P-1042 defaults if not determinable.
-    const systemMsg = messages.find((m) => m.role === 'system')?.content ?? '';
-    const isJames = systemMsg.includes('James');
-    const participantId = isJames ? 'P-1087' : 'P-1042';
-    const visitId = isJames ? 'V-1087-03' : 'V-1042-04';
-    const visitDate = isJames ? '2024-11-18T14:00:00' : '2024-11-18T09:00:00';
-    const firstName = isJames ? 'James' : 'Maria';
+    const prevAssistant = [...messages.slice(0, lastUserIdx)]
+      .reverse()
+      .find((m) => m.role === 'assistant' && m.content.trim() !== '')?.content.toLowerCase() ?? '';
 
-    // ── After trackReimbursement ran → confirm submission ─────────────────
-    // (checked before the confirmTravel summary so a reimbursement question
-    //  that arrives after travel booking gets a proper response)
-    if (hasRun('trackReimbursement')) {
-      return {
-        content:
-          `Your reimbursement request has been submitted! You'll receive payment within 5–7 business days. ` +
-          `Is there anything else I can help you with, ${firstName}?`,
-        toolCalls: [],
-        finishReason: 'stop',
-      };
-    }
-
-    // ── Reimbursement question ─────────────────────────────────────────────
-    if (/reimburse|miles|mileage|expense|payment|drive|drove/i.test(userText)) {
-      const milesMatch = userText.match(/(\d+)\s*miles?/);
-      const miles = milesMatch ? parseInt(milesMatch[1]) : 25;
-      return {
-        content: `I'll submit a mileage reimbursement request for you now.`,
-        toolCalls: [
-          {
-            id: 'tc-006',
-            type: 'function',
-            function: {
-              name: 'trackReimbursement',
-              arguments: JSON.stringify({
-                participantId,
-                visitId,
-                milesDriven: miles,
-                hotelNights: 0,
-              }),
-            },
-          },
-        ],
-        finishReason: 'tool_calls',
-      };
-    }
-
-    // ── After confirmTravel ran → give full summary ────────────────────────
-    if (hasRun('confirmTravel')) {
-      return {
-        content:
-          `All done! Here's a summary:\n` +
-          `• Visit rescheduled to November 18th, 2024.\n` +
-          `• Travel confirmed to the site.\n` +
-          `• Email reminder scheduled for 3 days before your visit.\n\n` +
-          `Is there anything else I can help you with, ${firstName}?`,
-        toolCalls: [],
-        finishReason: 'stop',
-      };
-    }
-
-    // ── After getTravelOptions ran ─────────────────────────────────────────
-    if (hasRun('getTravelOptions') && !hasRun('confirmTravel')) {
-      // Check if the agent has already presented the options in a prior assistant turn
-      const optionsAlreadyShown = messages.some(
-        (m) => m.role === 'assistant' && m.content.includes('travel options for your visit')
-      );
-
-      if (optionsAlreadyShown) {
-        // User is responding to the options — if approving, book; otherwise re-ask
-        const approve = /yes|sure|go ahead|ok|great|please|book|confirm|sounds good/i.test(userText);
-        if (approve) {
-          const mode = isJames ? 'rideshare' : 'transit';
-          return {
-            content: "Great, booking your travel now and scheduling a reminder.",
-            toolCalls: [
-              {
-                id: 'tc-004',
-                type: 'function',
-                function: {
-                  name: 'confirmTravel',
-                  arguments: JSON.stringify({
-                    participantId,
-                    visitId,
-                    visitDateTime: visitDate,
-                    transportMode: mode,
-                    requiresHotel: false,
-                    humanConfirmed: true,
-                  }),
-                },
-              },
-              {
-                id: 'tc-005',
-                type: 'function',
-                function: {
-                  name: 'sendReminder',
-                  arguments: JSON.stringify({
-                    participantId,
-                    visitId,
-                    channel: 'email',
-                    daysBeforeVisit: 3,
-                  }),
-                },
-              },
-            ],
-            finishReason: 'tool_calls',
-          };
-        }
-        // User didn't confirm — re-present options
-        return {
-          content: `Just to confirm, would you like me to book the travel option shown above?`,
-          toolCalls: [],
-          finishReason: 'stop',
-        };
+    const say = (content: string): LlmResponse => ({ content, toolCalls: [], finishReason: 'stop' });
+    let callN = 0;
+    const call = (...calls: Array<[string, Record<string, unknown>]>): LlmResponse => ({
+      content: null,
+      toolCalls: calls.map(([name, args]) => ({
+        id: `mock-${Date.now().toString(36)}-${callN++}`,
+        type: 'function',
+        function: { name, arguments: JSON.stringify({ participantId: pid, visitId: visit.visitId, ...args }) },
+      })),
+      finishReason: 'tool_calls',
+    });
+    const parse = (m?: Message) => { try { return JSON.parse(m?.content ?? '{}'); } catch { return {}; } };
+    const argsOf = (name: string): Record<string, unknown> => {
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const tc = messages[i].toolCalls?.find((c) => c.function.name === name);
+        if (tc) { try { return JSON.parse(tc.function.arguments); } catch { return {}; } }
       }
-
-      // Options not yet presented — show them now
-      const travelCost = isJames ? '$75' : '$5';
-      const mode = isJames ? 'rideshare' : 'transit';
-      return {
-        content:
-          `Here are the travel options for your visit:\n` +
-          `• ${mode.charAt(0).toUpperCase() + mode.slice(1)} to the site — estimated cost: ${travelCost}.\n\n` +
-          `No hotel stay is needed. Would you like me to go ahead and book this?`,
-        toolCalls: [],
-        finishReason: 'stop',
-      };
-    }
-
-    // ── After rescheduleVisit ran → ask about travel or fetch options ──────
-    if (hasRun('rescheduleVisit') && !hasRun('getTravelOptions')) {
-      // If the user said yes / confirmed, fetch travel options now
-      const confirmed = /yes|sure|go ahead|ok|great|please|book|travel|option/i.test(userText);
-      if (confirmed) {
-        return {
-          content: "Let me pull up the available travel options and costs for your visit.",
-          toolCalls: [
-            {
-              id: 'tc-003',
-              type: 'function',
-              function: {
-                name: 'getTravelOptions',
-                arguments: JSON.stringify({
-                  participantId,
-                  visitId,
-                  visitDateTime: visitDate,
-                  requiresHotel: false,
-                }),
-              },
-            },
-          ],
-          finishReason: 'tool_calls',
-        };
-      }
-      // Otherwise just confirm the reschedule and ask about travel
-      return {
-        content:
-          `Your visit is now rescheduled to November 18th. ` +
-          `Would you like me to look up travel options to the site for you?`,
-        toolCalls: [],
-        finishReason: 'stop',
-      };
-    }
-
-    // ── After checkVisitWindow ran → reschedule ────────────────────────────
-    if (hasRun('checkVisitWindow') && !hasRun('rescheduleVisit')) {
-      return {
-        content: "November 18th is within the allowed window. I'll go ahead and reschedule your visit now.",
-        toolCalls: [
-          {
-            id: 'tc-002',
-            type: 'function',
-            function: {
-              name: 'rescheduleVisit',
-              arguments: JSON.stringify({
-                participantId,
-                visitId,
-                newDateTime: visitDate,
-                reason: 'Scheduling conflict on original date',
-              }),
-            },
-          },
-        ],
-        finishReason: 'tool_calls',
-      };
-    }
-
-    // ── Conflict / reschedule request → check visit window first ──────────
-    if (/conflict|reschedule|move|cancel|change|can't make|cannot make/i.test(userText)) {
-      return {
-        content: "I'll check whether your proposed date falls within the protocol window.",
-        toolCalls: [
-          {
-            id: 'tc-001',
-            type: 'function',
-            function: {
-              name: 'checkVisitWindow',
-              arguments: JSON.stringify({
-                participantId,
-                visitId,
-                proposedDate: '2024-11-18',
-              }),
-            },
-          },
-        ],
-        finishReason: 'tool_calls',
-      };
-    }
-
-    // ── Generic fallback ───────────────────────────────────────────────────
-    return {
-      content:
-        `I'm here to help with your clinical trial visit. I can:\n` +
-        `• Reschedule your upcoming visit\n` +
-        `• Arrange travel and check costs\n` +
-        `• Submit reimbursement for mileage or hotel\n` +
-        `• Send visit reminders\n\n` +
-        `What would you like to do, ${firstName}?`,
-      toolCalls: [],
-      finishReason: 'stop',
+      return {};
     };
+    const windowText = `${friendlyDate(visit.window.earliestDate)} and ${friendlyDate(visit.window.latestDate)}`;
+
+    // ── 1. Describe results of tools that ran this turn ──────────────────
+    if (lastTool) {
+      const out = parse(lastTool);
+      if (out.error) {
+        if (lastTool.toolName === 'confirmTravel') {
+          return say(`Before I book anything, I need your go-ahead. Would you like me to book the travel option above? You can use the **Book this option** button or just reply "yes".`);
+        }
+        return say(`Sorry, I ran into a problem with that: ${out.error}\n\nWould you like me to pass this to your coordinator?`);
+      }
+      switch (lastTool.toolName) {
+        case 'checkVisitWindow': {
+          const proposed = String(argsOf('checkVisitWindow').proposedDate ?? '');
+          if (out.withinWindow && out.reschedulesRemaining > 0) {
+            const time = visit.scheduledDateTime.slice(10) || 'T09:00:00';
+            return call(['rescheduleVisit', { newDateTime: `${proposed}${time}`, reason: 'Participant scheduling conflict' }]);
+          }
+          if (out.withinWindow) {
+            return say(`${friendlyDate(proposed)} is inside your window, but this visit has no reschedules left under the protocol. I can ask your coordinator to review an exception — would you like me to do that?`);
+          }
+          return say(`Unfortunately ${friendlyDate(proposed)} is outside the protocol window for this visit, which runs between ${windowText}.\n\nWould you like to pick a date in that range, or should I ask your coordinator to review it?`);
+        }
+        case 'rescheduleVisit':
+          return say(
+            `Done — your visit is now on **${friendlyDate(out.newVisitDateTime)}** (confirmation code ${out.confirmationCode}).\n\n` +
+            `Would you like me to look up travel options to the site for you?`
+          );
+        case 'getTravelOptions': {
+          const lines = (out.options ?? []).map((o: { transportMode: string; estimatedTravelCostUsd: number; hotelCostUsd: number; totalCostUsd: number; hotelName?: string }) =>
+            `• **${o.transportMode}** (round trip): $${o.estimatedTravelCostUsd}` +
+            (o.hotelCostUsd > 0 ? ` + ${o.hotelName ?? 'hotel'}: $${o.hotelCostUsd}` : '') +
+            ` — **total $${o.totalCostUsd}**, covered by the study.`
+          );
+          return say(`Here's what I found for your visit:\n${lines.join('\n')}\n\nWould you like me to book this? Nothing is booked until you approve.`);
+        }
+        case 'confirmTravel':
+        case 'sendReminder': {
+          const travel = turnTools.find((m) => m.toolName === 'confirmTravel');
+          const reminder = turnTools.find((m) => m.toolName === 'sendReminder');
+          const parts: string[] = [];
+          if (travel) {
+            const t = parse(travel);
+            parts.push(`• Travel booked: ${t.transportMode}, est. $${t.estimatedCostUsd}${t.hotelBooked ? ` (incl. ${t.hotelName})` : ''}. Confirmation: ${(t.confirmationCodes ?? []).join(', ')}`);
+          }
+          if (reminder) {
+            const r = parse(reminder);
+            parts.push(`• Reminder set by ${r.channel} ${argsOf('sendReminder').daysBeforeVisit ?? 3} days before your visit.`);
+          }
+          return say(`All set, ${first}!\n${parts.join('\n')}\n\nAnything else I can help with?`);
+        }
+        case 'trackReimbursement':
+          return say(`Submitted! Your reimbursement **${out.reimbursementId}** for about **$${out.estimatedAmountUsd}** is now ${out.status}. Payments usually arrive within 5–7 business days after sponsor review.`);
+        case 'escalateToCoordinator':
+          return say(`I've flagged this for your site coordinator (${out.coordinatorEmail ?? trial.coordinatorEmail}), and they'll reach out to you directly. Is there anything you'd like me to add to the note?`);
+      }
+    }
+
+    // ── 2. Follow-ups to what the assistant just asked ───────────────────
+    const affirm = AFFIRM.test(u) && !DECLINE.test(u);
+    const decline = DECLINE.test(u) && !AFFIRM.test(u.replace(/no thanks/, ''));
+
+    if (prevAssistant.includes('would you like me to book this')) {
+      if (affirm) {
+        const opts = argsOf('getTravelOptions');
+        const lastOptions = parse([...messages].reverse().find((m) => m.toolName === 'getTravelOptions'));
+        const mode = lastOptions.options?.[0]?.transportMode ?? 'rideshare';
+        return call(
+          ['confirmTravel', { visitDateTime: opts.visitDateTime ?? visit.scheduledDateTime, transportMode: mode, requiresHotel: !!opts.requiresHotel, humanConfirmed: true }],
+          ['sendReminder', { channel: 'email', daysBeforeVisit: 3 }]
+        );
+      }
+      if (decline) return say(`No problem — nothing has been booked. Keep your receipts and I can help you submit them for reimbursement afterwards. Anything else?`);
+    }
+    if (prevAssistant.includes('look up travel options') && affirm) {
+      return call(['getTravelOptions', { visitDateTime: visit.scheduledDateTime, requiresHotel: /hotel|overnight|stay/.test(u) }]);
+    }
+    if (prevAssistant.includes('which date would work') || prevAssistant.includes('pick a date')) {
+      const d = parseDate(u);
+      if (d) return call(['checkVisitWindow', { proposedDate: d }]);
+    }
+    if (prevAssistant.includes('should i submit') && affirm) {
+      const miles = Number(prevAssistant.match(/(\d+) miles/)?.[1] ?? 0);
+      const nights = Number(prevAssistant.match(/(\d+) hotel night/)?.[1] ?? 0);
+      return call(['trackReimbursement', { milesDriven: miles, hotelNights: nights }]);
+    }
+    if ((prevAssistant.includes('ask your coordinator') || prevAssistant.includes('pass this to your coordinator')) && affirm) {
+      return call(['escalateToCoordinator', { reason: `Participant request following: "${prevAssistant.slice(0, 160)}"`, urgency: 'medium' }]);
+    }
+    if (prevAssistant.includes('how many miles')) {
+      const miles = u.match(/(\d+)/)?.[1];
+      if (miles) return say(`Just to confirm: should I submit a mileage reimbursement for ${miles} miles (about $${(+miles * trial.mileageRateUsd).toFixed(2)}) for your ${visit.visitType} visit?`);
+    }
+
+    // ── 3. New intents ───────────────────────────────────────────────────
+    if (/\b(speak|talk) (to|with) (a |someone|a person|a human|the coordinator)|\bhuman\b|\bcomplain|\bmistake\b|\bwrong\b|\burgent\b|escalate/.test(u)) {
+      return call(['escalateToCoordinator', { reason: userText.slice(0, 300), urgency: /urgent|asap|right now/.test(u) ? 'high' : 'medium' }]);
+    }
+    if (/reimburs|mileage|\bmiles\b|expense|receipt|paid|payment/.test(u)) {
+      if (/status|when|still|waiting|haven'?t|where is|how long/.test(u)) {
+        const mine = reimbursements.filter((r) => r.participantId === pid);
+        const last = mine[mine.length - 1];
+        return say(last
+          ? `Your most recent reimbursement (${last.reimbursementId}, $${last.amountUsd}) is **${last.status}**. Payments usually arrive 5–7 business days after sponsor review. If it's been longer than that, I can ask your coordinator to look into it — would you like that?`
+          : `I don't see any reimbursement requests on file for you yet. Would you like to submit one? Just tell me how many miles you drove or how many hotel nights you paid for.`);
+      }
+      const miles = u.match(/(\d+)\s*(mi\b|miles?)/)?.[1];
+      const nights = u.match(/(\d+)\s*(hotel )?nights?/)?.[1];
+      if (miles || nights) {
+        const amt = (+(miles ?? 0)) * trial.mileageRateUsd + (+(nights ?? 0)) * trial.hotelRateUsd;
+        return say(`Just to confirm: should I submit a reimbursement for ${miles ? `${miles} miles` : ''}${miles && nights ? ' and ' : ''}${nights ? `${nights} hotel night(s)` : ''} (about $${amt.toFixed(2)})?`);
+      }
+      return say(`Happy to help with that. How many miles did you drive to and from the site?`);
+    }
+    if (/reschedul|conflict|can'?t make|cannot make|move (my|the) (visit|appointment)|change (my|the) (visit|appointment|date)|different (day|date)/.test(u)) {
+      const d = parseDate(u);
+      if (d) return call(['checkVisitWindow', { proposedDate: d }]);
+      return say(
+        `I can help with that. Your ${visit.visitType} visit is currently on **${friendlyDate(visit.scheduledDateTime)}**. ` +
+        `The protocol allows it between ${windowText}.\n\nWhich date would work for you?`
+      );
+    }
+    if (/travel|ride|uber|lyft|taxi|train|hotel|transport|get there|parking/.test(u)) {
+      return call(['getTravelOptions', { visitDateTime: visit.scheduledDateTime, requiresHotel: /hotel|overnight|stay|night/.test(u) }]);
+    }
+    if (/remind|reminder|notif/.test(u)) {
+      const days = Number(u.match(/(\d+)\s*days?/)?.[1] ?? 3);
+      return call(['sendReminder', { channel: /text|sms/.test(u) ? 'sms' : 'email', daysBeforeVisit: days }]);
+    }
+    if (/when is|what time|where is|next visit|my visit|appointment/.test(u)) {
+      return say(`Your next visit is a ${visit.visitType} visit on **${friendlyDate(visit.scheduledDateTime)}** at ${visit.siteLocation}. Would you like help rescheduling it or arranging travel?`);
+    }
+    if (/^(hi|hello|hey|good (morning|afternoon|evening))\b/.test(u.trim())) {
+      return say(`Hi ${first}! How can I help with your trial visits today?`);
+    }
+    if (/thank|thanks|thx|appreciate/.test(u)) {
+      return say(`You're very welcome, ${first}! Let me know if there's anything else I can do.`);
+    }
+    if (decline && prevAssistant) {
+      return say(`Okay, no problem. Is there anything else I can help with?`);
+    }
+    if (/what can you|help|what do you do|capabilit/.test(u)) {
+      return say(
+        `Here's what I can help with, ${first}:\n` +
+        `• **Reschedule a visit** within the protocol window\n` +
+        `• **Arrange travel** (and a hotel if needed), booked only after you approve\n` +
+        `• **Reimbursements**: submit mileage/hotel or check status\n` +
+        `• **Reminders** by email or text\n` +
+        `• **Connect you with your coordinator** for anything else`
+      );
+    }
+    return say(
+      `I'm a logistics assistant for your trial, so I can only help with visits, travel, reimbursements, reminders, ` +
+      `or connecting you with your coordinator. Could you tell me which of those you need?`
+    );
   }
 }
 
@@ -282,36 +285,56 @@ export class MockLlmClient implements LlmClient {
 // ---------------------------------------------------------------------------
 
 /**
- * Live IBM watsonx AI client using the @ibm-cloud/watsonx-ai SDK.
- * Requires WATSONX_API_KEY, WATSONX_PROJECT_ID, and WATSONX_URL in env.
+ * Live IBM watsonx.ai client using the @ibm-cloud/watsonx-ai SDK's chat API
+ * with native tool calling.
  */
 export class WatsonxLlmClient implements LlmClient {
+  readonly modelId: string;
   private projectId: string;
-  private modelId: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private client: any;
 
   constructor() {
     this.projectId = process.env.WATSONX_PROJECT_ID ?? '';
-    this.modelId = process.env.WATSONX_MODEL_ID ?? 'ibm/granite-3-8b-instruct';
+    this.modelId = process.env.WATSONX_MODEL_ID ?? 'meta-llama/llama-3-3-70b-instruct';
 
-    // Lazy import so the SDK is only required when MOCK_LLM=false
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { WatsonXAI } = require('@ibm-cloud/watsonx-ai');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { IamAuthenticator } = require('@ibm-cloud/watsonx-ai/authentication');
     this.client = WatsonXAI.newInstance({
       version: '2024-05-31',
       serviceUrl: process.env.WATSONX_URL ?? 'https://us-south.ml.cloud.ibm.com',
+      authenticator: new IamAuthenticator({ apikey: process.env.WATSONX_API_KEY ?? '' }),
     });
   }
 
-  /** @inheritdoc */
+  /** Converts internal history to the watsonx / OpenAI chat message format. */
+  private toWire(messages: Message[]): unknown[] {
+    return messages.map((m) => {
+      if (m.role === 'tool') {
+        return { role: 'tool', tool_call_id: m.toolCallId ?? '', content: m.content };
+      }
+      if (m.role === 'assistant' && m.toolCalls?.length) {
+        return {
+          role: 'assistant',
+          ...(m.content ? { content: m.content } : {}),
+          tool_calls: m.toolCalls.map((tc) => ({ id: tc.id, type: 'function', function: tc.function })),
+        };
+      }
+      return { role: m.role, content: m.content ?? '' };
+    });
+  }
+
   async chat(messages: Message[], tools: ToolDefinition[]): Promise<LlmResponse> {
-    const response = await this.client.chat({
+    const response = await this.client.textChat({
       modelId: this.modelId,
       projectId: this.projectId,
-      messages: messages.map((m) => ({ role: m.role, content: m.content ?? '' })),
+      messages: this.toWire(messages),
       tools,
       toolChoiceOption: 'auto',
+      maxTokens: 1024,
+      temperature: 0.2,
     });
 
     const choice = response.result?.choices?.[0];
@@ -319,22 +342,27 @@ export class WatsonxLlmClient implements LlmClient {
 
     const toolCalls: ToolCall[] = (msg.tool_calls ?? []).map(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (tc: any): ToolCall => ({
-        id: tc.id,
+      (tc: any, i: number): ToolCall => ({
+        id: tc.id || `call-${Date.now().toString(36)}-${i}`,
         type: 'function',
-        function: { name: tc.function.name, arguments: tc.function.arguments },
+        function: {
+          name: tc.function?.name ?? '',
+          arguments:
+            typeof tc.function?.arguments === 'string'
+              ? tc.function.arguments
+              : JSON.stringify(tc.function?.arguments ?? {}),
+        },
       })
     );
 
     return {
       content: msg.content ?? null,
       toolCalls,
-      finishReason:
-        choice?.finish_reason === 'tool_calls'
-          ? 'tool_calls'
-          : choice?.finish_reason === 'stop'
-            ? 'stop'
-            : 'error',
+      finishReason: toolCalls.length
+        ? 'tool_calls'
+        : choice?.finish_reason === 'length'
+          ? 'length'
+          : 'stop',
     };
   }
 }
@@ -343,19 +371,19 @@ export class WatsonxLlmClient implements LlmClient {
 // Factory
 // ---------------------------------------------------------------------------
 
+export type LlmMode = 'watsonx' | 'mock';
+
+/** Which backend createLlmClient() will use, based on env. */
+export function llmMode(): LlmMode {
+  const useMock =
+    process.env.MOCK_LLM === 'true' || !process.env.WATSONX_API_KEY || !process.env.WATSONX_PROJECT_ID;
+  return useMock ? 'mock' : 'watsonx';
+}
+
 /**
- * Returns the appropriate LLM client based on the MOCK_LLM env variable.
- * Falls back to MockLlmClient when watsonx credentials are not configured,
- * so the app stays functional in demo / staging environments.
+ * Returns the watsonx client when credentials are configured, otherwise the
+ * scripted mock so the app stays functional in demo / staging environments.
  */
 export function createLlmClient(): LlmClient {
-  const useMock =
-    process.env.MOCK_LLM === 'true' ||
-    !process.env.WATSONX_API_KEY ||
-    !process.env.WATSONX_PROJECT_ID;
-
-  if (useMock) {
-    return new MockLlmClient();
-  }
-  return new WatsonxLlmClient();
+  return llmMode() === 'mock' ? new MockLlmClient() : new WatsonxLlmClient();
 }
