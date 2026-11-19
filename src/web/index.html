@@ -290,6 +290,84 @@
     }
     #send-btn:hover:not(:disabled) { background: var(--accent-dark); }
     #send-btn:disabled { opacity: 0.5; cursor: default; }
+
+    /* ── Travel options confirmation card ───────── */
+    .travel-options-card {
+      align-self: flex-start;
+      max-width: 560px;
+      background: #fff8ed;
+      border: 1px solid #fbbf24;
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-left: 40px; /* align with agent bubble */
+    }
+    .travel-options-card .toc-heading {
+      font-size: 12px;
+      font-weight: 700;
+      color: #92400e;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .travel-options-card .toc-heading::before {
+      content: "✋";
+      font-size: 14px;
+    }
+    .travel-option-row {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .travel-option-row:last-of-type { margin-bottom: 0; }
+    .travel-option-info { font-size: 13px; line-height: 1.4; }
+    .travel-option-info strong { font-weight: 600; }
+    .travel-option-info .opt-cost {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 1px;
+    }
+    .travel-confirm-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 7px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    .travel-confirm-btn:hover:not(:disabled) { background: var(--accent-dark); }
+    .travel-confirm-btn:disabled { opacity: 0.45; cursor: default; }
+    .travel-cancel-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 14px;
+      font-size: 12px;
+      color: var(--muted);
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    .travel-cancel-btn:hover:not(:disabled) { background: #f3f4f6; }
+    .travel-cancel-btn:disabled { opacity: 0.45; cursor: default; }
+    .toc-confirmed-notice {
+      font-size: 12px;
+      color: #16a34a;
+      font-weight: 600;
+      margin-top: 8px;
+    }
   </style>
 </head>
 <body>
@@ -492,7 +570,9 @@
   }
 
   function appendAgentMessage(text, toolExecutions) {
-    // Tool executions first (collapsed by default)
+    const msgs = document.getElementById('messages');
+
+    // Tool executions (collapsed by default)
     if (toolExecutions && toolExecutions.length > 0) {
       const block = document.createElement('div');
       block.className = 'tool-block';
@@ -515,17 +595,92 @@
         `;
         block.appendChild(row);
       });
-      document.getElementById('messages').appendChild(block);
+      msgs.appendChild(block);
     }
 
+    // Agent text bubble
     const row = document.createElement('div');
     row.className = 'msg-row agent';
     row.innerHTML = `
       <div class="avatar agent">AI</div>
       <div class="bubble">${escHtml(text)}</div>
     `;
-    document.getElementById('messages').appendChild(row);
+    msgs.appendChild(row);
+
+    // ── Travel options card (human-in-the-loop confirmation) ───────────────
+    // Rendered after the bubble so the participant sees the agent's explanation
+    // first, then the explicit clickable confirmation below it.
+    const travelExec = (toolExecutions || []).find(e => e.toolName === 'getTravelOptions');
+    if (travelExec && travelExec.output && Array.isArray(travelExec.output.options)) {
+      const cardId = 'toc-' + Math.random().toString(36).slice(2);
+      const card = document.createElement('div');
+      card.className = 'travel-options-card';
+      card.id = cardId;
+
+      card.innerHTML = '<div class="toc-heading">Human approval required before booking</div>';
+
+      travelExec.output.options.forEach((opt, idx) => {
+        const label = travelExec.output.options.length > 1
+          ? `Option ${idx + 1}`
+          : 'Confirm travel';
+        const mode = opt.transportMode || 'transit';
+        const totalCost = opt.totalCostUsd != null ? `$${opt.totalCostUsd}` : '';
+        const hotelLine = opt.hotelCostUsd > 0
+          ? ` + hotel ($${opt.hotelCostUsd}/night)`
+          : '';
+
+        const optionRow = document.createElement('div');
+        optionRow.className = 'travel-option-row';
+        optionRow.dataset.cardId = cardId;
+        optionRow.innerHTML = `
+          <div class="travel-option-info">
+            <strong>${escHtml(label)}</strong> — ${escHtml(mode)}${escHtml(hotelLine)}
+            <div class="opt-cost">Estimated total: ${escHtml(totalCost)}</div>
+          </div>
+          <button
+            class="travel-confirm-btn"
+            onclick="confirmTravelOption('${cardId}', 'Yes, please book ${escHtml(label).replace(/'/g, "\\'")} — ${escHtml(mode)}${escHtml(hotelLine).replace(/'/g, "\\'")}')"
+          >Book this option</button>
+        `;
+        card.appendChild(optionRow);
+      });
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'travel-cancel-btn';
+      cancelBtn.textContent = 'No thanks, I\'ll sort it myself';
+      cancelBtn.setAttribute('onclick', `confirmTravelOption('${cardId}', 'No thanks, I will arrange my own travel')`);
+      card.appendChild(cancelBtn);
+
+      msgs.appendChild(card);
+    }
+
     scrollToBottom();
+  }
+
+  /**
+   * Called when the participant clicks a travel option button.
+   * Disables all buttons in the card (prevents double-booking), then
+   * sends the chosen option as the next user message.
+   */
+  function confirmTravelOption(cardId, messageText) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+
+    // Disable all action buttons so the choice cannot be changed
+    card.querySelectorAll('button').forEach(btn => {
+      btn.disabled = true;
+    });
+
+    // Show a small "confirmed" notice inside the card
+    const notice = document.createElement('div');
+    notice.className = 'toc-confirmed-notice';
+    notice.textContent = '✓ Selection sent — waiting for confirmation…';
+    card.appendChild(notice);
+
+    // Inject the choice as a user message and send
+    const input = document.getElementById('msg-input');
+    input.value = messageText;
+    sendMessage();
   }
 
   function appendTyping() {
