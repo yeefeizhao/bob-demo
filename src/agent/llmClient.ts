@@ -236,7 +236,7 @@ export class MockLlmClient implements LlmClient {
       }
       return say(`Happy to help with that. How many miles did you drive to and from the site?`);
     }
-    if (/reschedul|conflict|can'?t make|cannot make|move (my|the) (visit|appointment)|change (my|the) (visit|appointment|date)|different (day|date)/.test(u)) {
+    if (/reschedul|conflict|can'?t (make|come|go|attend)|cannot (make|come|attend)|won'?t be able|not (be )?available|busy|move (my|the) (visit|appointment)|change (my|the) (visit|appointment|date|time)|different (day|date|time)|another (day|date)|push (it|my visit) back/.test(u)) {
       const d = parseDate(u);
       if (d) return call(['checkVisitWindow', { proposedDate: d }]);
       return say(
@@ -244,7 +244,7 @@ export class MockLlmClient implements LlmClient {
         `The protocol allows it between ${windowText}.\n\nWhich date would work for you?`
       );
     }
-    if (/travel|ride|uber|lyft|taxi|train|hotel|transport|get there|parking/.test(u)) {
+    if (/travel|ride|uber|lyft|taxi|cab|car service|train|bus|hotel|transport|get there|getting there|get to the (site|hospital|clinic)|parking|pick me up|commute/.test(u)) {
       return call(['getTravelOptions', { visitDateTime: visit.scheduledDateTime, requiresHotel: /hotel|overnight|stay|night/.test(u) }]);
     }
     if (/remind|reminder|notif/.test(u)) {
@@ -262,6 +262,9 @@ export class MockLlmClient implements LlmClient {
     }
     if (decline && prevAssistant) {
       return say(`Okay, no problem. Is there anything else I can help with?`);
+    }
+    if (affirm && /anything (else|logistics)/.test(prevAssistant)) {
+      return say(`Sure — what would you like to do? I can reschedule a visit, arrange travel, help with a reimbursement, set a reminder, or connect you with your coordinator.`);
     }
     if (/what can you|help|what do you do|capabilit/.test(u)) {
       return say(
