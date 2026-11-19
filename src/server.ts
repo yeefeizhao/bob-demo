@@ -21,7 +21,7 @@ dotenv.config();
 import * as path from 'path';
 import express, { Request, Response } from 'express';
 import { PARTICIPANTS, TRIALS } from './data/seed';
-import { createLlmClient, llmMode } from './agent/llmClient';
+import { createLlmClient, llmMode, llmModelName } from './agent/llmClient';
 import { createSession, AgentSession } from './agent/runner';
 import { AgentContext } from './types';
 
@@ -40,12 +40,7 @@ const sessions = new Map<string, AgentSession>();
 
 /** Reports which LLM backend is active so the UI can show demo vs live mode. */
 app.get('/api/health', (_req: Request, res: Response) => {
-  const mode = llmMode();
-  res.json({
-    ok: true,
-    llm: mode,
-    model: mode === 'watsonx' ? (process.env.WATSONX_MODEL_ID ?? 'meta-llama/llama-3-3-70b-instruct') : 'scripted-mock',
-  });
+  res.json({ ok: true, llm: llmMode(), model: llmModelName() });
 });
 
 // ---------------------------------------------------------------------------
@@ -161,6 +156,6 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n  Clinical Trial Retention Agent — Web UI`);
   console.log(`  http://localhost:${PORT}`);
   console.log(
-    `  LLM backend: ${llmMode()}${llmMode() === 'mock' ? ' (set WATSONX_API_KEY + WATSONX_PROJECT_ID for live mode)' : ''}\n`
+    `  LLM backend: ${llmMode()} (${llmModelName()})${llmMode() === 'mock' ? ' - set GROQ_API_KEY (free) or watsonx keys for live mode' : ''}\n`
   );
 });

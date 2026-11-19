@@ -726,13 +726,13 @@
   fetch('/api/health').then(r => r.json()).then(h => {
     const b = document.getElementById('llm-badge');
     if (!b) return;
-    if (h.llm === 'watsonx') {
+    if (h.llm !== 'mock') {
       b.textContent = 'Live · ' + h.model;
       b.style.background = '#dcfce7'; b.style.color = '#166534';
     } else {
       b.textContent = 'Demo mode (scripted)';
       b.style.background = '#fef3c7'; b.style.color = '#92400e';
-      b.title = 'No watsonx credentials configured — responses are scripted.';
+      b.title = 'No LLM API key configured — responses are scripted.';
     }
     b.style.display = 'inline-block';
   }).catch(() => {});

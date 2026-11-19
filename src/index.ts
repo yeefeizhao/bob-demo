@@ -5,7 +5,7 @@
  */
 
 export { createSession } from './agent/runner';
-export { createLlmClient, MockLlmClient, WatsonxLlmClient } from './agent/llmClient';
+export { createLlmClient, MockLlmClient, WatsonxLlmClient, OpenAiCompatibleLlmClient } from './agent/llmClient';
 export { TOOL_DEFINITIONS } from './agent/toolDefinitions';
 export { buildSystemPrompt } from './agent/systemPrompt';
 export {

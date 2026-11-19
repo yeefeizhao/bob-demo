@@ -312,61 +312,100 @@ export class WatsonxLlmClient implements LlmClient {
     });
   }
 
-  /** Converts internal history to the watsonx / OpenAI chat message format. */
-  private toWire(messages: Message[]): unknown[] {
-    return messages.map((m) => {
-      if (m.role === 'tool') {
-        return { role: 'tool', tool_call_id: m.toolCallId ?? '', content: m.content };
-      }
-      if (m.role === 'assistant' && m.toolCalls?.length) {
-        return {
-          role: 'assistant',
-          ...(m.content ? { content: m.content } : {}),
-          tool_calls: m.toolCalls.map((tc) => ({ id: tc.id, type: 'function', function: tc.function })),
-        };
-      }
-      return { role: m.role, content: m.content ?? '' };
-    });
-  }
-
   async chat(messages: Message[], tools: ToolDefinition[]): Promise<LlmResponse> {
     const response = await this.client.textChat({
       modelId: this.modelId,
       projectId: this.projectId,
-      messages: this.toWire(messages),
+      messages: toOpenAiMessages(messages),
       tools,
       toolChoiceOption: 'auto',
       maxTokens: 1024,
       temperature: 0.2,
     });
+    return fromOpenAiChoice(response.result?.choices?.[0]);
+  }
+}
 
-    const choice = response.result?.choices?.[0];
-    const msg = choice?.message ?? {};
+// ---------------------------------------------------------------------------
+// OpenAI-compatible client (Groq, Google Gemini, OpenAI, OpenRouter, ...)
+// ---------------------------------------------------------------------------
 
-    const toolCalls: ToolCall[] = (msg.tool_calls ?? []).map(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (tc: any, i: number): ToolCall => ({
-        id: tc.id || `call-${Date.now().toString(36)}-${i}`,
-        type: 'function',
-        function: {
-          name: tc.function?.name ?? '',
-          arguments:
-            typeof tc.function?.arguments === 'string'
-              ? tc.function.arguments
-              : JSON.stringify(tc.function?.arguments ?? {}),
-        },
-      })
-    );
+/** Converts internal history to the OpenAI chat-completions message format. */
+function toOpenAiMessages(messages: Message[]): unknown[] {
+  return messages.map((m) => {
+    if (m.role === 'tool') {
+      return { role: 'tool', tool_call_id: m.toolCallId ?? '', content: m.content };
+    }
+    if (m.role === 'assistant' && m.toolCalls?.length) {
+      return {
+        role: 'assistant',
+        content: m.content || null,
+        tool_calls: m.toolCalls.map((tc) => ({ id: tc.id, type: 'function', function: tc.function })),
+      };
+    }
+    return { role: m.role, content: m.content ?? '' };
+  });
+}
 
-    return {
-      content: msg.content ?? null,
-      toolCalls,
-      finishReason: toolCalls.length
-        ? 'tool_calls'
-        : choice?.finish_reason === 'length'
-          ? 'length'
-          : 'stop',
-    };
+/** Normalises one OpenAI-style `choices[0]` into an LlmResponse. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function fromOpenAiChoice(choice: any): LlmResponse {
+  const msg = choice?.message ?? {};
+  const toolCalls: ToolCall[] = (msg.tool_calls ?? []).map(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (tc: any, i: number): ToolCall => ({
+      id: tc.id || `call-${Date.now().toString(36)}-${i}`,
+      type: 'function',
+      function: {
+        name: tc.function?.name ?? '',
+        arguments:
+          typeof tc.function?.arguments === 'string'
+            ? tc.function.arguments
+            : JSON.stringify(tc.function?.arguments ?? {}),
+      },
+    })
+  );
+  return {
+    content: msg.content ?? null,
+    toolCalls,
+    finishReason: toolCalls.length ? 'tool_calls' : choice?.finish_reason === 'length' ? 'length' : 'stop',
+  };
+}
+
+const DEFAULT_OPENAI_BASE_URL = 'https://api.groq.com/openai/v1';
+const DEFAULT_OPENAI_MODEL = 'openai/gpt-oss-120b';
+
+/**
+ * Calls any OpenAI-compatible /chat/completions endpoint with native tool
+ * calling. Defaults to Groq's free tier running OpenAI's open-weight
+ * gpt-oss-120b. Configure with OPENAI_API_KEY (or GROQ_API_KEY),
+ * OPENAI_BASE_URL and OPENAI_MODEL.
+ */
+export class OpenAiCompatibleLlmClient implements LlmClient {
+  readonly model = process.env.OPENAI_MODEL ?? DEFAULT_OPENAI_MODEL;
+  private baseUrl = (process.env.OPENAI_BASE_URL ?? DEFAULT_OPENAI_BASE_URL).replace(/\/+$/, '');
+  private apiKey = process.env.OPENAI_API_KEY ?? process.env.GROQ_API_KEY ?? '';
+
+  async chat(messages: Message[], tools: ToolDefinition[]): Promise<LlmResponse> {
+    const res = await fetch(`${this.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.apiKey}` },
+      body: JSON.stringify({
+        model: this.model,
+        messages: toOpenAiMessages(messages),
+        tools,
+        tool_choice: 'auto',
+        temperature: 0.2,
+        max_tokens: 1024,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`LLM API ${res.status}: ${body.slice(0, 500)}`);
+    }
+    const data = (await res.json()) as { choices?: unknown[] };
+    return fromOpenAiChoice(data.choices?.[0]);
   }
 }
 
@@ -374,19 +413,40 @@ export class WatsonxLlmClient implements LlmClient {
 // Factory
 // ---------------------------------------------------------------------------
 
-export type LlmMode = 'watsonx' | 'mock';
-
-/** Which backend createLlmClient() will use, based on env. */
-export function llmMode(): LlmMode {
-  const useMock =
-    process.env.MOCK_LLM === 'true' || !process.env.WATSONX_API_KEY || !process.env.WATSONX_PROJECT_ID;
-  return useMock ? 'mock' : 'watsonx';
-}
+export type LlmMode = 'watsonx' | 'openai' | 'mock';
 
 /**
- * Returns the watsonx client when credentials are configured, otherwise the
- * scripted mock so the app stays functional in demo / staging environments.
+ * Which backend createLlmClient() will use, based on env:
+ * MOCK_LLM=true → mock; watsonx keys → watsonx; OpenAI-compatible key → openai;
+ * otherwise mock.
  */
+export function llmMode(): LlmMode {
+  if (process.env.MOCK_LLM === 'true') return 'mock';
+  if (process.env.WATSONX_API_KEY && process.env.WATSONX_PROJECT_ID) return 'watsonx';
+  if (process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY) return 'openai';
+  return 'mock';
+}
+
+/** Human-readable model name for the active backend. */
+export function llmModelName(): string {
+  switch (llmMode()) {
+    case 'watsonx':
+      return process.env.WATSONX_MODEL_ID ?? 'meta-llama/llama-3-3-70b-instruct';
+    case 'openai':
+      return process.env.OPENAI_MODEL ?? DEFAULT_OPENAI_MODEL;
+    default:
+      return 'scripted-mock';
+  }
+}
+
+/** Returns the client for the configured backend (falls back to the mock). */
 export function createLlmClient(): LlmClient {
-  return llmMode() === 'mock' ? new MockLlmClient() : new WatsonxLlmClient();
+  switch (llmMode()) {
+    case 'watsonx':
+      return new WatsonxLlmClient();
+    case 'openai':
+      return new OpenAiCompatibleLlmClient();
+    default:
+      return new MockLlmClient();
+  }
 }

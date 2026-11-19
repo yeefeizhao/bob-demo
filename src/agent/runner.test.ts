@@ -252,3 +252,46 @@ describe('createSession', () => {
     expect(userMessages).toHaveLength(2);
   });
 });
+
+describe('OpenAiCompatibleLlmClient', () => {
+  it('sends tool history in OpenAI format and parses tool calls', async () => {
+    const { OpenAiCompatibleLlmClient } = await import('./llmClient');
+    const fetchMock = jest.fn(async (_url: string, _init: { body: string }) => ({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            finish_reason: 'tool_calls',
+            message: {
+              content: null,
+              tool_calls: [{ id: 'c1', type: 'function', function: { name: 'sendReminder', arguments: '{"channel":"sms"}' } }],
+            },
+          },
+        ],
+      }),
+    }));
+    const realFetch = global.fetch;
+    global.fetch = fetchMock as unknown as typeof fetch;
+    try {
+      const client = new OpenAiCompatibleLlmClient();
+      const res = await client.chat(
+        [
+          { role: 'system', content: 'sys' },
+          { role: 'user', content: 'hi' },
+          { role: 'assistant', content: '', toolCalls: [{ id: 't0', type: 'function', function: { name: 'x', arguments: '{}' } }] },
+          { role: 'tool', toolCallId: 't0', toolName: 'x', content: '{}' },
+        ],
+        []
+      );
+      expect(res.toolCalls[0].function.name).toBe('sendReminder');
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe('https://api.groq.com/openai/v1/chat/completions');
+      const body = JSON.parse(init.body);
+      expect(body.model).toBe('openai/gpt-oss-120b');
+      expect(body.messages[2]).toMatchObject({ role: 'assistant', content: null, tool_calls: [{ id: 't0' }] });
+      expect(body.messages[3]).toMatchObject({ role: 'tool', tool_call_id: 't0' });
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+});
